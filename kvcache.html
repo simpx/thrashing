@@ -102,6 +102,10 @@
   .crosshair { stroke: var(--baseline); stroke-width: 1; }
   .ref-dot      { fill: var(--muted); opacity: .5; }
   .ref-dot.inwin{ fill: var(--series-1); opacity: 1; }
+  .ref-dot.miss { fill: var(--status-critical); opacity: .9; }
+  .solo-foot    { fill: var(--band-fill); }
+  .bar-hit      { fill: var(--series-1); }
+  .bar-miss     { fill: var(--status-critical); }
   .ws-rowband   { fill: var(--series-1); opacity: 0; }
   .ws-rowband.on{ opacity: .10; }
   .win-band     { fill: var(--series-1); opacity: .08; }
@@ -181,7 +185,24 @@
     <p><b>定义</b>　时刻 <em class="v">t</em>、窗口 <em class="v">τ</em> 下的工作集 <em class="v">W</em>(<em class="v">t</em>, <em class="v">τ</em>)：最近 <em class="v">τ</em> 秒内有过轮次到达的 session，它们全部前缀 KV 的并集。所需 HBM 就是这些 session 的 context 长度之和。</p>
     <p>与前篇的关键区别：session 内部没有局部性可言——每轮都要摸全部历史 block，块级访问是“循环全扫”。<b>所有的局部性都在 session 粒度的时间维度上</b>：刚说过话的 session 大概率马上还会说话（用户还在对话界面前），沉默越久回来的概率越低。这里的“轮次间隔”（分时系统文献里的老词 think time，指用户读回复、打字的时间，与模型的 thinking 无关）就是前篇引用串局部性的转世。</p>
   </div>
-  <p>下面是 9 个 session、200 秒的模拟轨迹，上下两张图共用时间轴。<b>读图前先记住三件事——尤其是第三件，它是这一页和前篇最大的不同：</b></p>
+  <h3>2.1 先看一个 session：前篇“一个程序随时间变化”的对应物</h3>
+  <p>前篇的主图画的是<b>一个程序</b>的访存流，工作集逐页进出窗口。这里对应的是<b>一个 session</b>——但它的工作集是<b>全有或全无</b>的：要么整个前缀 KV 驻留（沉默不超过 τ），要么整个被释放。于是一张图必须同时记两本账：<b>内存账</b>（灰色区域 = KV 驻留在 HBM 的时间段，高度 = context 大小）和<b>计算账</b>（每轮一根柱子 = 这一轮实际要算多少 token）。间隔不超过 τ 的轮次是蓝柱——只算新增的一小截；间隔超过 τ 的轮次是红柱——前缀已被释放，<b>整个历史全量重算</b>，柱子一下子顶到 context 全高：</p>
+  <div class="card">
+    <div class="controls">
+      <label>保留窗口 <em class="v">τ</em><input type="range" id="soloTau" min="5" max="60" value="25"><output id="soloTauOut">25</output>s</label>
+    </div>
+    <div class="legend"><span><span class="key k1"></span>命中轮：只算新增 δ</span><span><span class="key" style="background:var(--status-critical)"></span>重算轮：整个前缀重算</span><span style="color:var(--muted)">灰色区域 = KV 驻留在 HBM 的时段</span></div>
+    <div class="chart-wrap" id="soloPlot"></div>
+    <div class="tiles">
+      <div class="tile"><div class="tl">平均 HBM 占用</div><div class="tv" id="soloMem">—</div><div class="td">灰色面积 ÷ 总时长（千 token）</div></div>
+      <div class="tile"><div class="tl">总计算量</div><div class="tv" id="soloCost">—</div><div class="td" id="soloWaste"></div></div>
+      <div class="tile"><div class="tl">该 session 的 goodput</div><div class="tv" id="soloGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
+    </div>
+  </div>
+  <p>拖动 τ 就能看到那笔交易：<b>τ 调小，灰色面积缩水（HBM 省了），但红柱冒出来（重算账单来了）</b>——goodput 从 100% 一路掉。τ 调大则相反：红柱消失，代价是这个 session 沉默期间一直占着 HBM。KV 在计算的那一刻必须全量在场，谁也省不掉；τ 买卖的只是沉默期间留不留——<b>留 = 用 HBM 换掉未来的重算，丢 = 用未来的重算换出 HBM</b>。</p>
+
+  <h3>2.2 再把 9 个 session 放进同一块 HBM</h3>
+  <p>单个 session 的账算清了，才轮到多个 session 的总账。下面是 9 个 session、200 秒的模拟轨迹，上下两张图共用时间轴。先声明：<b>这张图刻意不含任何置换策略</b>——它画的是需求与容量的关系（Denning 的 Σ|W<sub>i</sub>| ≤ M 条件）；红区里到底谁踩谁、抢占怎么连锁，是第 5 节模拟的主题。<b>读图前先记住四件事——尤其是第三件，它是这一页和前篇最大的不同：</b></p>
   <div class="defbox">
     <p><b>① 上图的一个点 = 一轮输入的到达。</b>它标记的是“这个 session 在这个时刻说了句话”，<b>不是</b>内存块。KV block 在下图里：一个 session 那条横带的<b>厚度</b>，才是它全部前缀 KV 的量。</p>
     <p><b>② 窗口 = “最近 τ 秒”这个时间段</b>——蓝色竖带，右边缘是当前时刻 t，宽度是 τ。与前篇是同一个概念，只是单位从“最近 τ 次访存”换成了“最近 τ 秒”。</p>
@@ -198,7 +219,7 @@
       <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="50" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
     </div>
     <p class="chart-title">轮次到达（每行一个 session，点 = 一轮输入到达，不是内存块）</p>
-    <p class="chart-note">活跃与否只看窗内<b>有没有</b>点（≥1 个即活跃、整行高亮），不看有几个。</p>
+    <p class="chart-note">活跃与否只看窗内<b>有没有</b>点（≥1 个即活跃、整行高亮），不看有几个。红点 = 该轮到达时与上一轮的间隔已超过 τ（或首轮），要全量重算——把 τ 调小，需求虽然降了，红点却会冒得到处都是：省下的 HBM 是用这些红点付的账。</p>
     <div class="chart-wrap" id="arrivalPlot"></div>
     <p class="chart-title">HBM 占用：窗内 session 的 KV 堆叠（单位：千 token）</p>
     <p class="chart-note">带子厚度 = 该 session 的 context；沉默超过 τ 整条抽走。红色 = 需求超出容量 M 的部分——此时无论用什么置换算法，都必有活跃 session 的前缀不完整。</p>
@@ -432,6 +453,64 @@ function demandAt(t, tau) {
   return { sum, k };
 }
 
+/* ---------- 可视化 2.1：单个 session 的两本账 ---------- */
+const SOLO_TURNS = [[10,6],[22,5],[34,6],[80,8],[92,5],[104,6],[150,7],[162,5]];
+const SOLO = { turns: SOLO_TURNS };
+const SO = { W: 860, H: 300, ml: 66, mr: 16, mt: 26, mb: 36, ymax: 60 };
+const soX = t => SO.ml + t / TMAX * (SO.W - SO.ml - SO.mr);
+const soY = v => SO.mt + (SO.H - SO.mt - SO.mb) * (1 - v / SO.ymax);
+const soSvg = svgEl("svg", { viewBox: `0 0 ${SO.W} ${SO.H}`, class: "chart", role: "img",
+                             "aria-label": "单个 session 的内存占用与每轮计算量" }, null);
+document.getElementById("soloPlot").appendChild(soSvg);
+[0, 20, 40, 60].forEach(v => {
+  svgEl("line", { x1: SO.ml, x2: SO.W - SO.mr, y1: soY(v), y2: soY(v), class: "gridline" }, soSvg);
+  svgEl("text", { x: SO.ml - 8, y: soY(v) + 4, "text-anchor": "end", class: "ticktext" }, soSvg).textContent = v;
+});
+const soloFootGroup = svgEl("g", {}, soSvg);
+const soloBarGroup = svgEl("g", {}, soSvg);
+svgEl("line", { x1: SO.ml, x2: SO.W - SO.mr, y1: soY(0), y2: soY(0), class: "axisline" }, soSvg);
+[0, 50, 100, 150, 200].forEach(tv =>
+  svgEl("text", { x: soX(tv), y: SO.H - SO.mb + 16, "text-anchor": "middle", class: "ticktext" }, soSvg).textContent = tv);
+svgEl("text", { x: SO.ml + (SO.W - SO.ml - SO.mr) / 2, y: SO.H - 2, "text-anchor": "middle", class: "axtext" }, soSvg).textContent = "时间（秒，示意）";
+svgEl("text", { x: SO.ml - 40, y: 12, class: "axtext" }, soSvg).textContent = "千 token";
+
+function redrawSolo(tau) {
+  soloFootGroup.innerHTML = ""; soloBarGroup.innerHTML = "";
+  /* 内存账：驻留期间的 context 面积 */
+  const pts = [];
+  for (let t = 0; t <= TMAX; t++) pts.push(residentAt(SOLO, t, tau) ? ctxAt(SOLO, t) : 0);
+  let d = `M${soX(0)},${soY(pts[0])}`;
+  for (let t = 1; t <= TMAX; t++) d += `L${soX(t)},${soY(pts[t - 1])}L${soX(t)},${soY(pts[t])}`;
+  d += `L${soX(TMAX)},${soY(0)}L${soX(0)},${soY(0)}Z`;
+  svgEl("path", { d, class: "solo-foot" }, soloFootGroup);
+  /* 计算账：每轮一根柱 */
+  let ctx = 0, totalCost = 0, totalNew = 0, waste = 0;
+  SOLO_TURNS.forEach(([u, delta], k) => {
+    ctx += delta;
+    const gap = k === 0 ? Infinity : u - SOLO_TURNS[k - 1][0];
+    const miss = gap > tau;
+    const cost = miss ? ctx : delta;
+    totalCost += cost; totalNew += delta; if (miss) waste += ctx - delta;
+    const bar = svgEl("rect", { x: soX(u) - 4, width: 8, y: soY(cost), height: soY(0) - soY(cost),
+                                rx: 2, class: miss ? "bar-miss" : "bar-hit" }, soloBarGroup);
+    svgEl("title", {}, bar).textContent =
+      `t=${u}s：${miss ? "重算 " + ctx + "k（前缀已释放）" : "命中，只算新增 " + delta + "k"}`;
+    svgEl("circle", { cx: soX(u), cy: soY(cost), r: 3.5, class: miss ? "bar-miss" : "bar-hit",
+                      stroke: "var(--surface-1)", "stroke-width": 1.5 }, soloBarGroup);
+  });
+  const avgMem = pts.reduce((a, b) => a + b, 0) / (TMAX + 1);
+  document.getElementById("soloMem").textContent = avgMem.toFixed(1);
+  document.getElementById("soloCost").textContent = totalCost + "k";
+  document.getElementById("soloWaste").textContent = `其中重算浪费 ${waste}k（新 token 共 ${totalNew}k）`;
+  document.getElementById("soloGp").textContent = Math.round(totalNew / totalCost * 100) + "%";
+}
+const soloTauSlider = document.getElementById("soloTau");
+soloTauSlider.addEventListener("input", () => {
+  document.getElementById("soloTauOut").textContent = soloTauSlider.value;
+  redrawSolo(+soloTauSlider.value);
+});
+redrawSolo(25);
+
 /* ---------- 可视化 A1：轮次到达 ---------- */
 const A1 = { W: 860, H: 262, ml: 66, mr: 16, mt: 24, mb: 34 };
 const a1X = t => A1.ml + t / TMAX * (A1.W - A1.ml - A1.mr);
@@ -447,8 +526,9 @@ SESSIONS.forEach((s, i) => {
 const a1Win = svgEl("rect", { y: A1.mt - 4, height: A1.H - A1.mt - A1.mb + 8, rx: 4, class: "win-band" }, a1Svg);
 const a1Edge = svgEl("line", { y1: A1.mt - 4, y2: A1.H - A1.mb + 4, class: "win-edge" }, a1Svg);
 const a1Dots = [];
-SESSIONS.forEach((s, i) => s.turns.forEach(([u]) => {
-  a1Dots.push({ si: i, u, el: svgEl("circle", { cx: a1X(u), cy: a1Y(i), r: 3, class: "ref-dot" }, a1Svg) });
+SESSIONS.forEach((s, i) => s.turns.forEach(([u], k) => {
+  const gap = k === 0 ? Infinity : u - s.turns[k - 1][0];
+  a1Dots.push({ si: i, u, gap, el: svgEl("circle", { cx: a1X(u), cy: a1Y(i), r: 3, class: "ref-dot" }, a1Svg) });
 }));
 svgEl("text", { x: a1X(52), y: a1Y(1) + 4, class: "anno" }, a1Svg).textContent = "← 用户已离开——但系统无法区分离开与停顿";
 svgEl("text", { x: a1X(60), y: a1Y(2) + 4, class: "anno" }, a1Svg).textContent = "← 停顿 61 秒后回来";
@@ -571,7 +651,8 @@ function updateVizA(structChanged) {
       svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(top), height: a2Y(Math.max(b, curM)) - a2Y(top), rx: 2, class: "now-seg over" }, nowGroup);
   });
   a1Dots.forEach(d => d.el.setAttribute("class",
-    inWs[d.si] && d.u <= curT && curT - d.u < curTau ? "ref-dot inwin" : "ref-dot"));
+    d.gap > curTau ? "ref-dot miss"
+      : inWs[d.si] && d.u <= curT && curT - d.u < curTau ? "ref-dot inwin" : "ref-dot"));
   const { sum, k } = demandAt(curT, curTau);
   document.getElementById("roT").textContent = curT + "s";
   document.getElementById("roK").textContent = k + " 个";
