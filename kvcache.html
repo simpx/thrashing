@@ -23,6 +23,7 @@
     --status-critical:#d03b3b;
     --wash-1:        rgba(42,120,214,0.10);
     --band-fill:     rgba(137,135,129,0.28);
+    --band-hot:      rgba(42,120,214,0.38);
     --q0:#cde2fb; --q1:#9ec5f4; --q2:#6da7ec; --q3:#3987e5;
     --q4:#256abf; --q5:#184f95; --q6:#104281; --q7:#0d366b;
   }
@@ -42,6 +43,7 @@
       --series-3:      #d55181;
       --wash-1:        rgba(57,135,229,0.14);
       --band-fill:     rgba(137,135,129,0.30);
+      --band-hot:      rgba(57,135,229,0.48);
       --q0:#0d366b; --q1:#104281; --q2:#1c5cab; --q3:#256abf;
       --q4:#3987e5; --q5:#5598e7; --q6:#86b6ef; --q7:#b7d3f6;
     }
@@ -105,7 +107,8 @@
   .win-band     { fill: var(--series-1); opacity: .08; }
   .win-edge     { stroke: var(--series-1); stroke-width: 1.5; }
   .kv-band      { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
-  .kv-band.inws { fill: var(--wash-1); fill: rgba(42,120,214,0.35); }
+  .now-seg      { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 1.5; }
+  .now-seg.over { fill: var(--status-critical); }
   .kv-over      { fill: var(--status-critical); opacity: .4; }
   .cap-line     { stroke: var(--text-secondary); stroke-width: 1.5; }
   .cap-text     { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
@@ -178,7 +181,13 @@
     <p><b>定义</b>　时刻 <em class="v">t</em>、窗口 <em class="v">τ</em> 下的工作集 <em class="v">W</em>(<em class="v">t</em>, <em class="v">τ</em>)：最近 <em class="v">τ</em> 秒内有过轮次到达的 session，它们全部前缀 KV 的并集。所需 HBM 就是这些 session 的 context 长度之和。</p>
     <p>与前篇的关键区别：session 内部没有局部性可言——每轮都要摸全部历史 block，块级访问是“循环全扫”。<b>所有的局部性都在 session 粒度的时间维度上</b>：刚说过话的 session 大概率马上还会说话（用户还在对话界面前），沉默越久回来的概率越低。这里的“轮次间隔”（分时系统文献里的老词 think time，指用户读回复、打字的时间，与模型的 thinking 无关）就是前篇引用串局部性的转世。</p>
   </div>
-  <p>下面是 9 个 session、200 秒的模拟轨迹。<b>上图</b>是轮次到达（前篇引用串的转世）：每行一个 session，每个点一轮，点越晚 context 越长。<b>下图把 y 轴换成 HBM 本身</b>：每个在窗内的 session 是一条堆叠的横带，厚度 = 它的 context（随轮次增厚）；闲置超过 τ，整条带子从堆里抽走。水平线是容量 M——堆顶捅破 M 的部分涂红，<b>那就是雪崩区，是你自己用滑块拖出来的</b>：</p>
+  <p>下面是 9 个 session、200 秒的模拟轨迹，上下两张图共用时间轴。<b>读图前先记住三件事——尤其是第三件，它是这一页和前篇最大的不同：</b></p>
+  <div class="defbox">
+    <p><b>① 上图的一个点 = 一轮输入的到达。</b>它标记的是“这个 session 在这个时刻说了句话”，<b>不是</b>内存块。KV block 在下图里：一个 session 那条横带的<b>厚度</b>，才是它全部前缀 KV 的量。</p>
+    <p><b>② 窗口 = “最近 τ 秒”这个时间段</b>——蓝色竖带，右边缘是当前时刻 t，宽度是 τ。与前篇是同一个概念，只是单位从“最近 τ 次访存”换成了“最近 τ 秒”。</p>
+    <p><b>③ 窗口筛的是 session，不是块。</b>一行里只要有<b>至少一个</b>点落进窗口，这个 session 就算活跃（整行高亮）→ 它的<b>全部</b>前缀 KV 必须驻留 → 下图当前时刻竖线上的蓝色剖面，就是此刻驻留的各个 session 各占多厚（挤到容量线 M 之上的部分变红）。前篇的窗口是逐页筛选的；这里一旦选中就是全量驻留——因为 attention 需要完整前缀。</p>
+  </div>
+  <p><b>下图把 y 轴换成 HBM 本身</b>：窗内每个 session 是一条堆叠的横带，厚度 = 它的 context（随轮次增厚）；沉默超过 τ，整条带子从堆里抽走。水平线是容量 M——堆顶捅破 M 的部分涂红，<b>那就是雪崩区，是你自己用滑块拖出来的</b>：</p>
 
   <div class="card">
     <div class="controls">
@@ -187,7 +196,8 @@
       <label>窗口 <em class="v">τ</em><input type="range" id="tauSlider" min="5" max="60" value="25"><output id="tauOut">25</output>s</label>
       <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="50" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
     </div>
-    <p class="chart-title">轮次到达（每行一个 session，点 = 一轮输入）</p>
+    <p class="chart-title">轮次到达（每行一个 session，点 = 一轮输入到达，不是内存块）</p>
+    <p class="chart-note">活跃与否只看窗内<b>有没有</b>点（≥1 个即活跃、整行高亮），不看有几个。</p>
     <div class="chart-wrap" id="arrivalPlot"></div>
     <p class="chart-title">HBM 占用：窗内 session 的 KV 堆叠（单位：千 token）</p>
     <p class="chart-note">带子厚度 = 该 session 的 context；沉默超过 τ 整条抽走。红色 = 需求超出容量 M 的部分——此时无论用什么置换算法，都必有活跃 session 的前缀不完整。</p>
@@ -461,6 +471,7 @@ const overGroup = svgEl("g", {}, a2Svg);
 const capLine = svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, class: "cap-line" }, a2Svg);
 const capText = svgEl("text", { x: A2.W - A2.mr - 4, "text-anchor": "end", class: "cap-text" }, a2Svg);
 const a2Now = svgEl("line", { y1: A2.mt - 2, y2: A2.H - A2.mb + 2, class: "win-edge" }, a2Svg);
+const nowGroup = svgEl("g", {}, a2Svg);
 svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(0), y2: a2Y(0), class: "axisline" }, a2Svg);
 [0, 50, 100, 150, 200].forEach(tv =>
   svgEl("text", { x: a2X(tv), y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, a2Svg).textContent = tv);
@@ -546,6 +557,18 @@ function updateVizA(structChanged) {
   a2Now.setAttribute("x1", a2X(curT)); a2Now.setAttribute("x2", a2X(curT));
   const inWs = SESSIONS.map(s => residentAt(s, curT, curTau));
   a1Rows.forEach((r, i) => r.setAttribute("class", inWs[i] ? "ws-rowband on" : "ws-rowband"));
+  /* 当前时刻的剖面卡尺：窗内每个 session 此刻占用的厚度 */
+  nowGroup.innerHTML = "";
+  SESSIONS.forEach((s, i) => {
+    const seg = stackCache.layers[i][curT];
+    if (!seg || !inWs[i]) return;
+    const [b, top] = seg;
+    const blueTop = Math.min(top, curM);
+    if (blueTop > b)
+      svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(blueTop), height: a2Y(b) - a2Y(blueTop), rx: 2, class: "now-seg" }, nowGroup);
+    if (top > Math.max(b, curM))
+      svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(top), height: a2Y(Math.max(b, curM)) - a2Y(top), rx: 2, class: "now-seg over" }, nowGroup);
+  });
   a1Dots.forEach(d => d.el.setAttribute("class",
     inWs[d.si] && d.u <= curT && curT - d.u < curTau ? "ref-dot inwin" : "ref-dot"));
   const { sum, k } = demandAt(curT, curTau);
