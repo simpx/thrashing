@@ -216,14 +216,48 @@
   <p>拐点之前，每加大一点 τ 都能装进大量“确实还在用”的页面，缺页率快速下降；拐点之后，再加大 τ 只是把陈旧页面留在内存里。所以 <b>τ 应选在拐点附近</b>——大到能覆盖一个局部性集合，又不至于跨越多个阶段。在本例中拐点在 τ ≈ 8–12 附近，恰好对应每个阶段约 4 个活跃页面被反复访问的周期。</p>
 </section>
 
+<section id="cost">
+  <div class="kicker">定量基础</div>
+  <h2>4. 缺页有多贵：效率与生存期曲线</h2>
+  <p>在进入抖动之前，需要两条曲线打底——第 5 节的模拟正是这两条曲线的组合。它们不是本页的发明：《Thrashing: Its Causes and Prevention》的定量论证正是围绕它们展开的。</p>
+
+  <h3>4.1 一次缺页 = 几千次访存的代价</h3>
+  <p>先定义两个量。<b>缺页间隔</b> <em class="v">L</em>：进程平均连续执行多少次访存才遇到一次缺页（论文中称 lifetime，即两次缺页之间的“生存期”，按进程自己的虚拟时间计）。<b>缺页服务时间</b> <em class="v">T</em>：一次缺页从中断到页面调入内存所需的时间，折算成访存次数。1968 年一次内存引用约 1 µs，而磁鼓/磁盘调页约 10 ms——相差 <b>4 个数量级</b>。本页模拟取 T = 2000（已经是保守值）。</p>
+  <p>一个进程的 CPU <b>效率</b>（Denning 称 duty factor）就是“干活时间 ÷ 总时间”：每执行 L 次访存要停下来等 T，所以</p>
+  <div class="defbox"><p><em class="v">e</em> = <em class="v">L</em> / (<em class="v">L</em> + <em class="v">T</em>)</p></div>
+
+  <div class="card">
+    <p class="chart-title">进程效率 e 与缺页间隔 L（T = 2000）</p>
+    <p class="chart-note">虚线：L = T = 2000，此处效率恰为 50%——缺页间隔必须远超服务时间，进程才谈得上在“运行”。</p>
+    <div class="chart-wrap" id="effChart"></div>
+    <details class="tbl"><summary>查看数据表</summary><div id="effTable"></div></details>
+  </div>
+
+  <p>这条曲线解释了抖动为何是断崖而非缓坡：因为 T 大得离谱，L 稍一缩短（缺页率稍一升高），效率就贴地。要效率达到 95%，缺页间隔必须达到 19 倍 T——将近四万次访存才允许错一次。</p>
+
+  <h3>4.2 生存期曲线：内存怎样换来缺页间隔</h3>
+  <p>那么 L 由什么决定？由进程分到的<b>内存帧数</b> <em class="v">f</em>。L 随 f 变化的关系就是<b>生存期曲线</b> L(<em class="v">f</em>)，它的形状有普遍规律：在工作集大小以下近似<b>幂律增长</b>——多给一帧，缺页间隔成倍改善；一旦 f 覆盖了工作集则<b>饱和</b>——继续加内存几乎不再减少缺页。拐点（膝点）就落在工作集大小附近，这也是 Denning 后来总结的“膝点判据”。本页模拟采用：</p>
+  <div class="defbox"><p>L(<em class="v">f</em>) = 20000 × (<em class="v">f</em> / 15)<sup>6</sup>（当 f &lt; 15）；　L(<em class="v">f</em>) = 20000（当 f ≥ 15）</p>
+  <p>其中 15 是进程的工作集大小，20000 是饱和值。幂指数 6 是教学选择——真实程序测得的指数因程序而异（文献中常见 1.5～3），指数越大悬崖越陡，但“膝点以下幂律、以上饱和”的形状是普遍的。</p></div>
+
+  <div class="card">
+    <p class="chart-title">生存期曲线 L(f)：分到的帧数 → 缺页间隔</p>
+    <p class="chart-note">虚线：f = 15（工作集大小），即膝点。注意 f 从 15 往下掉一点点，L 就崩塌一个量级。</p>
+    <div class="chart-wrap" id="lifeChart"></div>
+    <details class="tbl"><summary>查看数据表</summary><div id="lifeTable"></div></details>
+  </div>
+
+  <p>两条曲线连起来读：<b>帧数 f 决定缺页间隔 L（曲线二），L 决定效率 e（曲线一）</b>。当 f 跌破工作集时，L 沿幂律崩塌，正好把进程推下效率悬崖。下一节把 N 个这样的进程放进同一块内存——就是抖动。</p>
+</section>
+
 <section id="thrash">
   <div class="kicker">概念二</div>
-  <h2>4. 抖动：多塞一个进程，系统雪崩</h2>
+  <h2>5. 抖动：多塞一个进程，系统雪崩</h2>
   <p>有了工作集这把“尺子”，就能解释 1960 年代运维人员观察到的一种诡异故障：系统吞吐量随负载上升而上升，但多加一两个进程后，CPU 利用率<b>不是缓慢下降，而是断崖式崩塌</b>——所有进程都在等磁盘调页，CPU 几乎完全空转。Denning 把它命名为 <b>thrashing（抖动/颠簸）</b>。</p>
   <div class="defbox">
     <p><b>成因</b>　物理内存被过度分配（overcommit）：当所有进程工作集之和超过物理内存 Σ|W<sub>i</sub>| &gt; M，每个进程都拿不到自己工作集所需的页，于是<b>每个进程都频繁缺页</b>。更糟的是正反馈：CPU 空闲 → 调度器以为负载不足 → 再放入新进程 → 内存更紧张 → 缺页更多 → CPU 更闲。</p>
   </div>
-  <p>下面的模型模拟这一过程：物理内存共 <b>60 帧</b>，每个进程的工作集需要 <b>15 页</b>，缺页服务时间远大于命中执行时间。拖动进程数 <em class="v">N</em>，内存被均分为 <em class="v">N</em> 份：</p>
+  <p>下面把第 4 节的两条曲线组合成模型：物理内存共 <b>60 帧</b>，每个进程的工作集需要 <b>15 页</b>（即内存恰好容纳 4 个工作集），缺页服务时间 <b>T = 2000</b>，缺页间隔由生存期曲线 L(f) 给出。拖动进程数 <em class="v">N</em>，内存被均分为 <em class="v">N</em> 份：</p>
 
   <div class="card">
     <div class="controls">
@@ -246,15 +280,21 @@
       <span id="legend2" style="display:none"><span class="key k2"></span>工作集准入控制（最多同时运行 4 个）</span>
     </div>
     <div class="chart-wrap" id="unChart"></div>
+    <details class="tbl"><summary>模型公式与推导（利用率怎么算出来的）</summary>
+      <p>每个进程分到 f = 60/N 帧 → 由生存期曲线得到缺页间隔 L(f)（第 4.2 节）→ 该进程处于“等调页”状态的时间占比 <b>b = T / (T + L)</b>（第 4.1 节效率的补集）。假设各进程的等待相互独立，则 CPU 空转当且仅当 N 个进程<b>同时</b>在等调页，概率为 b<sup>N</sup>，于是：</p>
+      <p><b>U(N) = 1 − b<sup>N</sup>，其中 b = 2000 / (2000 + L(60/N))</b></p>
+      <p>代入验证：N = 4 → f = 15，L = 20000，b ≈ 0.091，U = 1 − 0.091⁴ ≈ 99.99%；N = 10 → f = 6，L = 20000×(6/15)⁶ ≈ 82，b = 2000/2082 ≈ 0.961，U = 1 − 0.961¹⁰ ≈ 33%。</p>
+      <p>简化说明：独立性假设忽略了磁盘排队——现实中缺页请求在同一台调页设备上串行，抖动只会比模型更严重。</p>
+    </details>
     <details class="tbl"><summary>查看数据表</summary><div id="unTable"></div></details>
   </div>
 
-  <p>N ≤ 4 时（4 × 15 = 60 帧恰好用满），每个进程的工作集都装得下，加进程能填满 CPU 的 I/O 空隙，利用率接近 100%。<b>从第 5 个进程开始</b>，每个进程分到的帧数跌破工作集需求，缺页间隔急剧缩短（模型中缺页间隔随内存呈幂律增长，这来自 Denning 引用的“生存期曲线”经验规律），利用率从 ~99% 一路崩到接近 0——这条陡峭的悬崖就是抖动。</p>
+  <p>N ≤ 4 时（4 × 15 = 60 帧恰好用满），每个进程的工作集都装得下，加进程能填满 CPU 的 I/O 空隙，利用率接近 100%。<b>从第 5 个进程开始</b>，每个进程分到的帧数跌破工作集需求，缺页间隔沿第 4 节的生存期曲线崩塌，利用率从 ~99% 一路崩到接近 0——这条陡峭的悬崖就是抖动。曲线为什么先升后崩，公式说得很直白：N 小时加进程让 b<sup>N</sup> 指数级变小（用别人的计算填补 I/O 空隙）；一旦 f 跌破工作集，L 的幂律崩塌把 b 推向 1，指数再也救不回来。</p>
 </section>
 
 <section id="cure">
   <div class="kicker">解法</div>
-  <h2>5. 药方：工作集原理</h2>
+  <h2>6. 药方：工作集原理</h2>
   <div class="defbox">
     <p><b>工作集原理（Working Set Principle）</b>　仅当一个进程的整个工作集都在内存中时，才允许它运行；操作系统必须保证任何时刻 <b>Σ|W<sub>i</sub>| ≤ M</b>。内存装不下新进程的工作集时，宁可把某个进程整体挂起（换出），也不挤压其他进程的工作集。</p>
   </div>
@@ -540,6 +580,42 @@ document.getElementById("sTauTable").innerHTML =
 const MEM = 60, WSET = 15, SVC = 2000, LMAX = 20000, ALPHA = 6, NMAX = 20;
 const CAP = Math.floor(MEM / WSET);        // 准入控制下最多同时运行的进程数
 function lifetime(f) { return f >= WSET ? LMAX : Math.max(1, LMAX * Math.pow(f / WSET, ALPHA)); }
+
+/* ---------- 可视化 2.5：效率曲线 e(L) 与生存期曲线 L(f) ---------- */
+const effPts = [];
+for (let L = 0; L <= LMAX; L += 250) effPts.push([L, L / (L + SVC)]);
+lineChart(document.getElementById("effChart"), {
+  h: 240, mr: 36, xMin: 0, xMax: LMAX, yMin: 0, yMax: 1,
+  xTicks: [0, 5000, 10000, 15000, 20000], yTicks: [0, 0.25, 0.5, 0.75, 1],
+  xLabel: "缺页间隔 L（连续执行的访存次数）", yLabel: "效率 e",
+  xName: "L", snap: v => Math.max(0, Math.min(LMAX, Math.round(v / 250) * 250)),
+  xFmt: fmtInt, yFmt: v => Math.round(v * 100) + "%",
+  vlines: [SVC],
+  series: [{ name: "进程效率 e = L/(L+T)", cls: "s1", points: effPts }],
+  ariaLabel: "进程效率随缺页间隔变化的折线图",
+});
+document.getElementById("effTable").innerHTML =
+  "<table><tr><th>缺页间隔 L</th><th>效率 e</th></tr>" +
+  effPts.filter(p => p[0] % 2000 === 0)
+        .map(p => `<tr><td>${fmtInt(p[0])}</td><td>${(p[1] * 100).toFixed(1)}%</td></tr>`).join("") +
+  "</table>";
+
+const lifePts = [];
+for (let f = 1; f <= 20; f += 0.25) lifePts.push([+f.toFixed(2), Math.round(lifetime(f))]);
+lineChart(document.getElementById("lifeChart"), {
+  h: 240, xMin: 1, xMax: 20, yMin: 0, yMax: LMAX,
+  xTicks: [1, 5, 10, 15, 20], yTicks: [0, 5000, 10000, 15000, 20000],
+  xLabel: "分到的内存帧数 f", yLabel: "缺页间隔 L(f)",
+  xName: "f", snap: v => Math.max(1, Math.min(20, Math.round(v * 4) / 4)),
+  yFmt: fmtInt, vlines: [WSET],
+  series: [{ name: "生存期曲线 L(f)", cls: "s1", points: lifePts }],
+  ariaLabel: "缺页间隔随内存帧数变化的折线图",
+});
+document.getElementById("lifeTable").innerHTML =
+  "<table><tr><th>帧数 f</th><th>缺页间隔 L(f)</th></tr>" +
+  lifePts.filter(p => Number.isInteger(p[0]))
+         .map(p => `<tr><td>${p[0]}</td><td>${fmtInt(p[1])}</td></tr>`).join("") +
+  "</table>";
 function util(n) {
   if (n <= 0) return 0;
   const L = lifetime(MEM / n), b = SVC / (SVC + L);
