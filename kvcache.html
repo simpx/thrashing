@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KV Cache 的工作集与雪崩 — Denning 1968 的转世</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧠</text></svg>">
+<style>
+  :root {
+    color-scheme: light;
+    --page:          #f9f9f7;
+    --surface-1:     #fcfcfb;
+    --text-primary:  #0b0b0b;
+    --text-secondary:#52514e;
+    --muted:         #898781;
+    --grid:          #e1e0d9;
+    --baseline:      #c3c2b7;
+    --border:        rgba(11,11,11,0.10);
+    --series-1:      #2a78d6;
+    --series-2:      #008300;
+    --series-3:      #e87ba4;
+    --status-good:   #0ca30c;
+    --status-critical:#d03b3b;
+    --wash-1:        rgba(42,120,214,0.10);
+    --band-fill:     rgba(137,135,129,0.28);
+    --q0:#cde2fb; --q1:#9ec5f4; --q2:#6da7ec; --q3:#3987e5;
+    --q4:#256abf; --q5:#184f95; --q6:#104281; --q7:#0d366b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:          #0d0d0d;
+      --surface-1:     #1a1a19;
+      --text-primary:  #ffffff;
+      --text-secondary:#c3c2b7;
+      --muted:         #898781;
+      --grid:          #2c2c2a;
+      --baseline:      #383835;
+      --border:        rgba(255,255,255,0.10);
+      --series-1:      #3987e5;
+      --series-2:      #008300;
+      --series-3:      #d55181;
+      --wash-1:        rgba(57,135,229,0.14);
+      --band-fill:     rgba(137,135,129,0.30);
+      --q0:#0d366b; --q1:#104281; --q2:#1c5cab; --q3:#256abf;
+      --q4:#3987e5; --q5:#5598e7; --q6:#86b6ef; --q7:#b7d3f6;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.75; font-size: 16px;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 20px 80px; }
+  header.hero { padding: 56px 0 8px; }
+  header.hero h1 { font-size: 34px; line-height: 1.3; margin: 0 0 12px; }
+  header.hero p.sub { color: var(--text-secondary); font-size: 18px; margin: 0; }
+  .backlink { font-size: 14px; margin-bottom: 16px; }
+  section { margin-top: 48px; }
+  h2 { font-size: 24px; margin: 0 0 12px; }
+  h3 { font-size: 18px; margin: 28px 0 8px; }
+  p  { margin: 10px 0; }
+  .kicker { color: var(--series-1); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px 20px 16px; margin: 16px 0; }
+  .defbox { border-left: 3px solid var(--series-1); background: var(--wash-1); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0; }
+  .defbox p { margin: 6px 0; }
+  .warnbox { border-left: 3px solid var(--status-critical); background: color-mix(in srgb, var(--status-critical) 8%, transparent); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 16px 0; }
+  .warnbox p { margin: 6px 0; }
+  em.v { font-style: italic; font-family: Georgia, "Times New Roman", serif; }
+  table.mapt { border-collapse: collapse; width: 100%; font-size: 14.5px; margin: 14px 0; }
+  table.mapt th, table.mapt td { border: 1px solid var(--grid); padding: 7px 12px; text-align: left; }
+  table.mapt th { color: var(--text-secondary); background: var(--wash-1); font-weight: 600; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px 26px; align-items: center; margin: 10px 0 4px; }
+  .controls label { font-size: 14px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+  .controls input[type=range] { width: 140px; accent-color: var(--series-1); }
+  .controls output { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; min-width: 3.5ch; display: inline-block; }
+  button.play { border: 1px solid var(--border); background: var(--surface-1); color: var(--text-primary); border-radius: 8px; padding: 5px 14px; font-size: 14px; cursor: pointer; }
+  button.play:hover { border-color: var(--series-1); }
+  .readout { font-size: 14px; color: var(--text-secondary); margin: 8px 0 0; }
+  .readout code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--wash-1); border-radius: 5px; padding: 1px 7px; color: var(--text-primary); }
+  .readout .ok  { color: var(--status-good); font-weight: 600; }
+  .readout .bad { color: var(--status-critical); font-weight: 600; }
+  .chart-wrap { position: relative; margin-top: 10px; }
+  svg.chart { width: 100%; height: auto; display: block; }
+  .chart-title { font-size: 14px; font-weight: 600; margin: 14px 0 0; }
+  .chart-note { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .axisline { stroke: var(--baseline); stroke-width: 1; }
+  .ticktext  { fill: var(--muted); font-size: 11px; }
+  .axtext    { fill: var(--text-secondary); font-size: 12px; }
+  .bandtext  { fill: var(--muted); font-size: 11px; }
+  .anno      { fill: var(--muted); font-size: 11px; font-style: italic; }
+  .s1-line { stroke: var(--series-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .s2-line { stroke: var(--series-2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .s3-line { stroke: var(--series-3); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .s1-dot  { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
+  .s2-dot  { fill: var(--series-2); stroke: var(--surface-1); stroke-width: 2; }
+  .s3-dot  { fill: var(--series-3); stroke: var(--surface-1); stroke-width: 2; }
+  .crosshair { stroke: var(--baseline); stroke-width: 1; }
+  .ref-dot      { fill: var(--muted); opacity: .5; }
+  .ref-dot.inwin{ fill: var(--series-1); opacity: 1; }
+  .ws-rowband   { fill: var(--series-1); opacity: 0; }
+  .ws-rowband.on{ opacity: .10; }
+  .win-band     { fill: var(--series-1); opacity: .08; }
+  .win-edge     { stroke: var(--series-1); stroke-width: 1.5; }
+  .kv-band      { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
+  .kv-band.inws { fill: var(--wash-1); fill: rgba(42,120,214,0.35); }
+  .kv-over      { fill: var(--status-critical); opacity: .4; }
+  .cap-line     { stroke: var(--text-secondary); stroke-width: 1.5; }
+  .cap-text     { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
+  .edge-line    { stroke: var(--text-primary); stroke-width: 1.5; stroke-dasharray: 5 4; }
+  .edge-label   { fill: var(--text-primary); font-size: 12px; font-weight: 600; paint-order: stroke; stroke: var(--surface-1); stroke-width: 4; stroke-linejoin: round; }
+  .tt { position: absolute; pointer-events: none; display: none; z-index: 5; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: 7px 11px; font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; line-height: 1.6; }
+  .tt b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .tt .key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin: 10px 0 0; }
+  .legend .key { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .k1 { background: var(--series-1); } .k2 { background: var(--series-2); } .k3 { background: var(--series-3); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .tile .tl { font-size: 13px; color: var(--text-secondary); }
+  .tile .tv { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .tile .td { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  details.tbl { margin-top: 12px; font-size: 13px; color: var(--text-secondary); }
+  details.tbl summary { cursor: pointer; color: var(--muted); }
+  details.tbl table { border-collapse: collapse; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  details.tbl th, details.tbl td { border: 1px solid var(--grid); padding: 3px 10px; text-align: right; }
+  details.tbl th { color: var(--text-secondary); font-weight: 600; }
+  details.tbl p { margin: 6px 0; }
+  .takeaways { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 12px; margin-top: 16px; }
+  .takeaways .card { margin: 0; }
+  .takeaways b { display: block; margin-bottom: 4px; }
+  .takeaways p { font-size: 14px; color: var(--text-secondary); margin: 0; }
+  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--grid); font-size: 13.5px; color: var(--muted); }
+  a { color: var(--series-1); }
+  @media (max-width: 640px) {
+    header.hero h1 { font-size: 26px; }
+    .controls input[type=range] { width: 110px; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header class="hero">
+  <p class="backlink"><a href="index.html">← 前篇：工作集与抖动 — 看懂 Denning 的 1968</a></p>
+  <div class="kicker">经典理论的现代转世</div>
+  <h1>KV Cache 的工作集与雪崩<br>1968 年的理论如何解释 LLM 推理</h1>
+  <p class="sub">Prefill 节点的 HBM 里塞着许多 session 的 KV cache，谁该留、留多久、超卖了会发生什么——这组问题和 1968 年"给每个进程多少内存"的问题惊人地同构，又在几个关键地方彻底不同。本页沿用前篇的路线：先看清工作集，再走到雪崩边缘。</p>
+</header>
+
+<section id="map">
+  <div class="kicker">映射</div>
+  <h2>1. 从分页内存到 KV Cache：一张对照表</h2>
+  <p>只考虑 <b>prefill 节点</b>：一个 session 是一条多轮对话轨迹，每轮到达时追加一段输入；计算这一轮时要对全部历史做 attention，所以该 session 的<b>整个前缀 KV 必须驻留</b>在 HBM 中。对照 1968 年的世界：</p>
+  <table class="mapt">
+    <tr><th>Denning 1968</th><th>LLM Prefill 节点</th></tr>
+    <tr><td>进程</td><td>Session（多轮对话）</td></tr>
+    <tr><td>内存页</td><td>KV cache block</td></tr>
+    <tr><td>物理内存 M</td><td>HBM 中的 KV cache 池</td></tr>
+    <tr><td>引用串</td><td>各 session 轮次到达的交错序列</td></tr>
+    <tr><td>缺页 → 读磁盘</td><td>前缀不在 → <b>重算</b>（re-prefill）</td></tr>
+    <tr><td>缺页服务时间 T（常数）</td><td>重算耗时 ∝ 丢失的 token 数（随 session 变老而增大）</td></tr>
+    <tr><td>CPU 利用率</td><td><b>Goodput</b>：GPU 算力中花在“新 token”上的比例</td></tr>
+    <tr><td>工作集 W(t, τ)</td><td>最近 τ 内有过轮次的 session 的前缀之并</td></tr>
+  </table>
+  <p>三个必须先说清的澄清：</p>
+  <p><b>① Miss 不是卡死，是重算。</b>token 文本本身就是“后备存储”——任何 KV 都能从文本重新算出来，只是贵。所以 KV cache 严格说不是请求调页，而是<b>物化视图</b>：数据永远可再生，问题只是你愿不愿意付这个 GPU 账单。真正的三选一是：命中（便宜）、重算（贵，且要挤占别人的空间）、排队（延迟）。</p>
+  <p><b>② 部分前缀有部分价值，但只能从尾巴逐出。</b>保留最长连续前缀就能省下等长的重算（vLLM / SGLang 的 prefix cache 正是这么做的）；可要是从中间挖走一块，洞之后的所有 block 实际上都废了。前篇“逐出完整工作集、不要人人剃一刀”的教训，在这里的形态是：<b>逐出永远从 session 的尾部开始</b>。</p>
+  <p><b>③ 工作集原理在轮内是被硬件强制的。</b>Denning 要靠调度策略保证“工作集不完整就不许运行”；而 attention 在数学上就要求全前缀同时驻留——原理被直接编译进了算法。于是所有策略自由度都落在<b>轮与轮之间</b>：给谁保留、保留多久、新轮次来了排队还是付费重算。这正是下面几节的全部内容。</p>
+</section>
+
+<section id="ws">
+  <div class="kicker">概念一的转世</div>
+  <h2>2. Session 的工作集：谁的 KV 该在 HBM 里</h2>
+  <div class="defbox">
+    <p><b>定义</b>　时刻 <em class="v">t</em>、窗口 <em class="v">τ</em> 下的工作集 <em class="v">W</em>(<em class="v">t</em>, <em class="v">τ</em>)：最近 <em class="v">τ</em> 秒内有过轮次到达的 session，它们全部前缀 KV 的并集。所需 HBM 就是这些 session 的 context 长度之和。</p>
+    <p>与前篇的关键区别：session 内部没有局部性可言——每轮都要摸全部历史 block，块级访问是“循环全扫”。<b>所有的局部性都在 session 粒度的时间维度上</b>：刚说过话的 session 大概率马上还会说话（用户还在对话界面前），沉默越久回来的概率越低。这里的“轮次间隔”（分时系统文献里的老词 think time，指用户读回复、打字的时间，与模型的 thinking 无关）就是前篇引用串局部性的转世。</p>
+  </div>
+  <p>下面是 9 个 session、200 秒的模拟轨迹。<b>上图</b>是轮次到达（前篇引用串的转世）：每行一个 session，每个点一轮，点越晚 context 越长。<b>下图把 y 轴换成 HBM 本身</b>：每个在窗内的 session 是一条堆叠的横带，厚度 = 它的 context（随轮次增厚）；闲置超过 τ，整条带子从堆里抽走。水平线是容量 M——堆顶捅破 M 的部分涂红，<b>那就是雪崩区，是你自己用滑块拖出来的</b>：</p>
+
+  <div class="card">
+    <div class="controls">
+      <button class="play" id="playBtn">▶ 播放</button>
+      <label>时刻 <em class="v">t</em><input type="range" id="tSlider" min="0" max="200" value="100"><output id="tOut">100</output></label>
+      <label>窗口 <em class="v">τ</em><input type="range" id="tauSlider" min="5" max="60" value="25"><output id="tauOut">25</output>s</label>
+      <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="50" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
+    </div>
+    <p class="chart-title">轮次到达（每行一个 session，点 = 一轮输入）</p>
+    <div class="chart-wrap" id="arrivalPlot"></div>
+    <p class="chart-title">HBM 占用：窗内 session 的 KV 堆叠（单位：千 token）</p>
+    <p class="chart-note">带子厚度 = 该 session 的 context；沉默超过 τ 整条抽走。红色 = 需求超出容量 M 的部分——此时无论用什么置换算法，都必有活跃 session 的前缀不完整。</p>
+    <div class="chart-wrap" id="stackPlot"></div>
+    <p class="readout">t = <code id="roT"></code>　窗内 session <code id="roK"></code>　需求 Σc = <code id="roSum"></code>　容量 M = <code id="roM"></code>　<span id="roStatus"></span></p>
+  </div>
+
+  <p>值得盯着看的三个现象：</p>
+  <p><b>① 会话 2 在 46 秒后永远沉默</b>——用户关掉了网页。但系统看到的和一次长停顿一模一样：<b>死亡是不可观测的</b>。前篇里旧页面会随局部性阶段切换自然滑出窗口；这里没有阶段切换，唯一的“自然过期”就是沉默超过 τ。窗口机制从一种优化手段变成了逻辑上的必需品。</p>
+  <p><b>② 会话 3 停顿 60 秒后回来了</b>——τ 小于停顿时长时它已被逐出，回来那一轮要全量重算。τ 的两难和前篇完全平行：太小误杀还会回来的 session，太大让死人占着 HBM。</p>
+  <p><b>③ 带子只增不减。</b>单个 session 活着时 context 单调增长（没有收缩机制），所以同样的并发数下，抖动压力随 session 年龄悄悄上升——负载没变，系统也会滑向红区。</p>
+</section>
+
+<section id="tau">
+  <div class="kicker">参数选择</div>
+  <h2>3. τ 怎么选：需求曲线与回头 miss 率</h2>
+  <p>前篇里 τ 的选择靠 s(τ) 曲线的膝点，且缺页率恰好是它的斜率（m(τ) = s′(τ)）。这个恒等式在这里有直接的转世：把保留窗口定为 τ，则 <b>miss 率 ≈ 轮次间隔超过 τ 的概率</b>——s(τ) 花的是 HBM，m(τ) 省的是重算，两条曲线对同一份轨迹计算，夹出 τ 的合理区间：</p>
+  <div class="card">
+    <p class="chart-title">平均 HBM 需求 s(τ)（对上面同一轨迹计算）</p>
+    <p class="chart-note">蓝点与上一节的 τ 滑块联动。曲线递增趋饱和：τ 大到一定程度，多留的全是已死 session。</p>
+    <div class="chart-wrap" id="sTauChart"></div>
+    <p class="chart-title">回头 miss 率 m(τ)：轮次间隔 &gt; τ 的比例</p>
+    <p class="chart-note">每个非首轮到达时，若与上一轮的间隔超过 τ，它的前缀已被逐出，需要全量重算。</p>
+    <div class="chart-wrap" id="mTauChart"></div>
+    <details class="tbl"><summary>查看数据表</summary><div id="tauTable"></div></details>
+  </div>
+  <p>膝点的位置由<b>轮次间隔的分布</b>决定：把 τ 定在典型对话节奏（几十秒）之上，就能吃掉绝大多数命中；再往上抬，s(τ) 还在涨而 m(τ) 几乎不再降——多付的 HBM 全在给低概率的回头客和已离开的用户占座。工程上这就是 KV cache 的 TTL 应该怎么定的问题。</p>
+</section>
+
+<section id="cost">
+  <div class="kicker">定量基础</div>
+  <h2>4. Miss 有多贵：99% 命中率是不够的</h2>
+  <p>前篇的支点是"缺页服务时间比一次访存慢 4 个数量级"。这里的对应物不是常数，而是一个随 session 变老不断增大的比值：<b>惩罚比 R = context 长度 ÷ 新一轮长度</b>。5 万 token 上下文的 session 发来 500 token 的一轮：命中时只算 500，全 miss 时要算 50500——R = 100 很日常，长文档场景轻松上千。于是单 session 的计算效率（有效计算占比）是：</p>
+  <div class="defbox"><p><em class="v">e</em> = 1 / (1 + (1 − <em class="v">h</em>) × <em class="v">R</em>)　　其中 h 为命中率，R = context / 轮长</p></div>
+  <div class="card">
+    <p class="chart-title">效率 e 与命中率 h（三条曲线：R = 10 / 100 / 1000）</p>
+    <div class="legend"><span><span class="key k1"></span>R = 10</span><span><span class="key k2"></span>R = 100</span><span><span class="key k3"></span>R = 1000</span></div>
+    <div class="chart-wrap" id="ehChart"></div>
+    <details class="tbl"><summary>查看数据表</summary><div id="ehTable"></div></details>
+  </div>
+  <p>读这张图的正确姿势是被它吓到：<b>R = 100 时，h = 99% 只换来 50% 的效率；h = 90% 只剩 9%</b>。前篇里"缺页间隔必须达到 19 倍 T 才有 95% 效率"的论证，转世成了"<b>miss 率必须远小于 1/R</b>"——而且 R 还在随 session 年龄增长。这就是为什么 KV cache 的命中率指标动辄要求 99.x%：不是洁癖，是效率公式的暴政。</p>
+</section>
+
+<section id="cliff">
+  <div class="kicker">概念二的转世</div>
+  <h2>5. 雪崩线：HBM、session 数与 context 的三角关系</h2>
+  <p>现在把 N 个 session 放进同一块 HBM。每个 session 平均 context 为 <em class="v">c̄</em>，每轮新增 δ = 0.5k token。总需求 N·c̄ ≤ M 时人人全命中；一旦超过，块级 LRU 会遭遇缓存理论里的经典病理——<b>循环扫描略大于缓存的集合，命中率不是缓降而是阶跃归零</b>（每个 session 每轮全扫自己的前缀，回来时自己的块恰好是最旧的，刚好被挤光；数据库 buffer pool 的 scan thrashing 同款）。前篇的悬崖需要一个教学用的幂指数，这里的悬崖是结构性的，位置就在：</p>
+  <div class="defbox"><p><b>雪崩线：M = N × c̄</b>　——HBM 越大养得起的 session 越多（线的斜率就是 c̄），跨过线即雪崩。</p></div>
+  <div class="card">
+    <div class="controls">
+      <label>session 数 <em class="v">N</em><input type="range" id="nSlider" min="1" max="32" value="8"><output id="nOut">8</output></label>
+      <label>容量 <em class="v">M</em><input type="range" id="capSlider" min="50" max="1600" step="50" value="400"><output id="capOut">400</output>k</label>
+      <label>平均 context <em class="v">c̄</em><input type="range" id="cbarSlider" min="10" max="100" step="10" value="50"><output id="cbarOut">50</output>k</label>
+    </div>
+    <p class="chart-title">Goodput 相图（块级 LRU 超卖）：横轴 N，纵轴 M</p>
+    <p class="chart-note">离背景色越远（越显眼）goodput 越高；虚线即雪崩线 M = N·c̄，圆点是你当前的配置。注意边缘之锋利：跨线前后 goodput 从 ~100% 直落到 ~1%。悬停单元格可读数。</p>
+    <div class="chart-wrap" id="phasePlot"></div>
+    <div class="tiles">
+      <div class="tile"><div class="tl">命中率 h</div><div class="tv" id="tileH">—</div><div class="td" id="tileHd"></div></div>
+      <div class="tile"><div class="tl">每轮计算放大</div><div class="tv" id="tileA">—</div><div class="td">实际算量 ÷ 有效算量</div></div>
+      <div class="tile"><div class="tl">Goodput</div><div class="tv" id="tileG">—</div><div class="td" id="tileGd"></div></div>
+    </div>
+    <p class="chart-title">Goodput 与 session 数 N（当前 M、c̄ 下的切片）</p>
+    <div class="legend"><span><span class="key k1"></span>块级 LRU 超卖（人人互踩）</span><span><span class="key k2"></span>session 级准入（驻留者受保护，超额者自付）</span></div>
+    <div class="chart-wrap" id="cliffChart"></div>
+    <p class="chart-note">两条线在跨线后都会下坠（超额 session 的重算是真实工作量，谁也变不走），但读法完全不同：LRU 下<b>所有</b> session 一起沉没；准入控制下驻留的 K 个 session 各自仍是 100% 效率，损失被隔离在超额者身上——M=400、c̄=50 时，N=9 的总 goodput 是 8.3% vs LRU 的 1%，差 8 倍，且随 N 增大持续领先（见数据表）。</p>
+    <details class="tbl"><summary>模型公式与推导</summary>
+      <p>块级 LRU：session 回来时，缓存里是比它更新的 N−1 个 session 的 context，留给它的空间是 M − (N−1)·c̄。命中率 h = clamp((M − (N−1)·c̄) / c̄, 0, 1)——在宽度仅 c̄ 的过渡带内从 1 跌到 0。每轮实际算量 = δ + (1−h)·c̄，<b>goodput = δ / (δ + (1−h)·c̄)</b>。</p>
+      <p>session 级准入：K = ⌊M / c̄⌋ 个 session 驻留、全命中；其余 N−K 个不驻留，每轮自付全量重算，但不侵占驻留者的空间。goodput = N·δ / (K·δ + (N−K)·(δ + c̄))。</p>
+      <p>注意与前篇的不同：OS 里被挂起的进程不消耗 CPU，绿线是平的；这里超额 session 开口说话就得算，绿线也会下垂——准入控制不能消灭工作量，它消灭的是<b>互相踩踏</b>：驻留的 K 个 session 效率恒为 100%，损失被隔离在超额者自己身上。若在门口直接排队/限流（不处理超额轮次），goodput 可保持 ~100%，代价是排队延迟——那才是前篇"整体挂起"的严格对应物。</p>
+    </details>
+    <details class="tbl"><summary>查看数据表（当前 M、c̄ 切片）</summary><div id="cliffTable"></div></details>
+  </div>
+  <p>比前篇更险恶的一点：雪崩发生时 <b>GPU 利用率是 100%</b>。OS 抖动的体征是 CPU 空转、磁盘狂响，一眼可诊断；KV 雪崩时监控面板一片健康——GPU 在满负荷地重算历史。必须换指标才能看见它：goodput、cache 命中率、TTFT，缺一不可。</p>
+  <div class="warnbox">
+    <p><b>正反馈螺旋的现代转世：重试风暴。</b>Denning 的螺旋是"CPU 空闲 → 调度器放入更多进程"；这里的版本更凶：雪崩 → TTFT 暴涨 → 客户端超时<b>重试</b> → 同一个长 prefill 被提交两遍 → 需求进一步过载。1968 年那个火上浇油的调度器，今天叫超时重试策略。</p>
+  </div>
+</section>
+
+<section id="cure">
+  <div class="kicker">药方</div>
+  <h2>6. 药方：还是工作集原理，但形态变了</h2>
+  <p>前篇的药方是一句话：Σ|W<sub>i</sub>| ≤ M，装不下就整体挂起。转世到 KV cache，它裂解成一组互相配合的机制：</p>
+  <div class="takeaways">
+    <div class="card"><b>用 τ 管理保留（本页第 2、3 节）</b><p>沉默超过 τ 的 session 整体让位——既是逐出策略也是死亡推断。τ 对着轮次间隔分布的膝点选，工程形态就是 KV cache 的 TTL。</p></div>
+    <div class="card"><b>Session 粒度逐出，尾部优先</b><p>要让位就整条带子抽走（或从尾部截断），绝不从中间挖洞、绝不让新 session 零敲碎打地踩别人的前缀——那是雪崩的引信。</p></div>
+    <div class="card"><b>门口准入，而非池内互踩</b><p>需求过线时，宁可让新轮次排队/限流（付延迟），也不放进来触发全池重算（付吞吐）。vLLM 的调度器不见 block 不排批、满池时整序列 preempt（recompute 或 swap 二选一——正是"重算 vs 换页"），都是这个原则。</p></div>
+    <div class="card"><b>亲和路由：别弄丢工作集</b><p>多个 prefill 节点时，把 session 路由回持有其缓存的节点（对应 OS 的进程迁移代价）。SGLang 的 radix tree 前缀共享、Mooncake 的 KVCache 中心调度，都是把"工作集在哪"当成一等公民的调度。</p></div>
+  </div>
+  <p>还有一个前篇没有的对手值得点名：<b>共享前缀</b>。公共 system prompt 是所有 session 工作集的交集——1968 年共享代码段的转世，也是现代 prefix cache 命中率的最大来源。它不改变雪崩的数学，但改变了 c̄ 的账。</p>
+</section>
+
+<section id="diff">
+  <div class="kicker">收尾</div>
+  <h2>7. 像与不像：六个本质差异</h2>
+  <div class="takeaways">
+    <div class="card"><b>① 局部性的单位变了</b><p>页 → session 前缀。session 内部每轮全扫历史，没有块级局部性；所有局部性都在"谁最近说过话"这个维度上。</p></div>
+    <div class="card"><b>② 工作集只增不减，死亡不可观测</b><p>进程工作集随阶段漂移；session 前缀单调生长直到无声无息地死去。τ 窗口从优化手段变成推断死亡的唯一途径。</p></div>
+    <div class="card"><b>③ 后备存储是"重算"</b><p>缺页读磁盘，miss 付 GPU：数据永远可再生，代价 ∝ 丢失量。KV cache 是物化视图，不是请求调页。</p></div>
+    <div class="card"><b>④ 惩罚比随年龄增长</b><p>T/访存 ≈ 10⁴ 是物理常数；R = context/轮长逐轮变大。负载不变，系统也会滑向悬崖。</p></div>
+    <div class="card"><b>⑤ 雪崩是隐形的</b><p>OS 抖动 CPU 空转，可见；KV 雪崩 GPU 100% 忙于无用功。诊断指标必须换成 goodput / 命中率 / TTFT。</p></div>
+    <div class="card"><b>⑥ 悬崖更陡，且无需拟合</b><p>前篇的幂指数是教学选择；这里"循环全扫 + LRU"的阶跃归零是可证明的病理，雪崩线 M = N·c̄ 是结构性的。</p></div>
+  </div>
+</section>
+
+<footer>
+  <p>前篇：<a href="index.html">工作集与抖动 — 看懂 Peter Denning 的 1968</a></p>
+  <p>参考：Denning, “The Working Set Model for Program Behavior”, CACM 1968 · Denning, “Thrashing: Its Causes and Prevention”, AFIPS FJCC 1968 · Denning, “Working Sets Past and Present”, IEEE TSE 1980 · Kwon et al., “Efficient Memory Management for LLM Serving with PagedAttention”（vLLM）, SOSP 2023 · Zheng et al., “SGLang: Efficient Execution of Structured Language Model Programs”（RadixAttention）, 2024 · Qin et al., “Mooncake: A KVCache-centric Disaggregated Architecture for LLM Serving”, 2024。</p>
+  <p>页面中的轨迹与模型为教学用途的简化模拟；所有公式与参数标注于正文，图表均附数据表或推导。</p>
+</footer>
+
+</main>
+
+<script>
+"use strict";
+/* ---------- 工具（与前篇一致） ---------- */
+const SVGNS = "http://www.w3.org/2000/svg";
+function svgEl(name, attrs, parent) {
+  const e = document.createElementNS(SVGNS, name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const fmtInt = n => Math.round(n).toLocaleString("en-US");
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function lineChart(root, cfg) {
+  const W = cfg.w || 860, H = cfg.h || 260;
+  const ml = cfg.ml || 46, mr = cfg.mr || 16, mt = cfg.mt || 22, mb = cfg.mb || 40;
+  const pw = W - ml - mr, phh = H - mt - mb;
+  const X = v => ml + (v - cfg.xMin) / (cfg.xMax - cfg.xMin) * pw;
+  const Y = v => mt + phh - (v - cfg.yMin) / (cfg.yMax - cfg.yMin) * phh;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": cfg.ariaLabel || "" }, null);
+  root.appendChild(svg);
+  for (const yt of cfg.yTicks) {
+    svgEl("line", { x1: ml, x2: ml + pw, y1: Y(yt), y2: Y(yt), class: "gridline" }, svg);
+    svgEl("text", { x: ml - 8, y: Y(yt) + 4, "text-anchor": "end", class: "ticktext" }, svg).textContent = (cfg.yFmt || String)(yt);
+  }
+  svgEl("line", { x1: ml, x2: ml + pw, y1: Y(cfg.yMin), y2: Y(cfg.yMin), class: "axisline" }, svg);
+  for (const xt of cfg.xTicks)
+    svgEl("text", { x: X(xt), y: mt + phh + 18, "text-anchor": "middle", class: "ticktext" }, svg).textContent = (cfg.xFmt || String)(xt);
+  if (cfg.xLabel) svgEl("text", { x: ml + pw / 2, y: H - 4, "text-anchor": "middle", class: "axtext" }, svg).textContent = cfg.xLabel;
+  if (cfg.yLabel) svgEl("text", { x: ml - 40, y: 12, class: "axtext" }, svg).textContent = cfg.yLabel;
+  if (cfg.vlines) for (const vx of cfg.vlines)
+    svgEl("line", { x1: X(vx), x2: X(vx), y1: mt, y2: mt + phh, class: "gridline", "stroke-dasharray": "3 3" }, svg);
+  const paths = cfg.series.map(s => svgEl("path", { class: s.cls + "-line", d: "" }, svg));
+  const cross = svgEl("line", { class: "crosshair", y1: mt, y2: mt + phh, visibility: "hidden" }, svg);
+  const markers = cfg.series.map(s => svgEl("circle", { r: 4.5, class: s.cls + "-dot", visibility: "hidden" }, svg));
+  const tt = document.createElement("div");
+  tt.className = "tt"; root.appendChild(tt);
+  const chart = {
+    X, Y, svg,
+    data: cfg.series.map(s => s.points || []),
+    visible: cfg.series.map(s => s.visible !== false),
+    setData(i, pts) { this.data[i] = pts; this.redraw(i); },
+    setVisible(i, v) { this.visible[i] = v; paths[i].style.display = v ? "" : "none"; this.updateMarker(); },
+    redraw(i) {
+      const pts = this.data[i];
+      paths[i].setAttribute("d", pts.length ? "M" + pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("L") : "");
+    },
+    markerX: null,
+    updateMarker() {
+      cfg.series.forEach((s, i) => {
+        const m = markers[i];
+        if (this.markerX == null || !this.visible[i]) { m.setAttribute("visibility", "hidden"); return; }
+        const p = this.data[i].find(p => p[0] === this.markerX);
+        if (!p) { m.setAttribute("visibility", "hidden"); return; }
+        m.setAttribute("cx", X(p[0])); m.setAttribute("cy", Y(p[1]));
+        m.setAttribute("visibility", "visible");
+      });
+    },
+    setMarker(xv) { this.markerX = xv; this.updateMarker(); },
+  };
+  cfg.series.forEach((s, i) => { chart.redraw(i); chart.setVisible(i, chart.visible[i]); });
+  svg.addEventListener("mousemove", ev => {
+    const r = svg.getBoundingClientRect();
+    const mx = (ev.clientX - r.left) / r.width * W;
+    if (mx < ml - 4 || mx > ml + pw + 4) { tt.style.display = "none"; cross.setAttribute("visibility", "hidden"); return; }
+    const xv = cfg.snap(cfg.xMin + (mx - ml) / pw * (cfg.xMax - cfg.xMin));
+    cross.setAttribute("x1", X(xv)); cross.setAttribute("x2", X(xv));
+    cross.setAttribute("visibility", "visible");
+    const rows = [];
+    cfg.series.forEach((s, i) => {
+      if (!chart.visible[i]) return;
+      const p = chart.data[i].find(p => p[0] === xv);
+      if (p) rows.push(`<span class="key ${s.cls === "s1" ? "k1" : s.cls === "s2" ? "k2" : "k3"}"></span>${s.name}：<b>${(cfg.yFmt || String)(p[1])}</b>`);
+    });
+    if (!rows.length) { tt.style.display = "none"; return; }
+    tt.innerHTML = `<div>${cfg.xName || "x"} = <b>${(cfg.xFmt || String)(xv)}</b></div>` + rows.map(r => `<div>${r}</div>`).join("");
+    tt.style.display = "block";
+    const px = X(xv) / W * r.width;
+    tt.style.left = Math.min(px + 14, r.width - tt.offsetWidth - 4) + "px";
+    tt.style.top = (ev.clientY - r.top - 10) + "px";
+  });
+  svg.addEventListener("mouseleave", () => { tt.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  return chart;
+}
+
+/* ---------- 数据：session 轨迹 ---------- */
+/* turns: [时刻(秒), 本轮新增 token 数(千)] */
+const SESSIONS = [
+  { name: "会话 1", turns: [[5,8],[15,6],[24,5],[40,7],[52,6],[70,5],[85,6],[100,5],[118,6],[135,5],[152,6],[170,5],[186,5]] },
+  { name: "会话 2", turns: [[2,10],[12,8],[22,6],[34,7],[46,8]], died: true },
+  { name: "会话 3", turns: [[18,4],[26,5],[34,4],[95,6],[104,5],[112,4],[121,5]] },
+  { name: "会话 4", turns: [[40,25],[62,20],[90,18],[130,15],[165,12]] },
+  { name: "会话 5", turns: [[55,5],[63,4],[71,5],[79,4],[88,5],[96,4],[105,5]] },
+  { name: "会话 6", turns: [[75,12],[92,10],[110,9],[128,10],[148,9],[168,10],[188,9]] },
+  { name: "会话 7", turns: [[98,6],[106,5],[115,6],[124,5],[160,7],[172,6],[184,5]] },
+  { name: "会话 8", turns: [[125,8],[136,7],[146,8],[158,7],[176,8],[190,7]] },
+  { name: "会话 9", turns: [[3,6],[11,5],[19,6],[27,5]] },
+];
+const TMAX = 200, NS = SESSIONS.length, YMAX_KV = 400;
+
+function ctxAt(s, t) {            // t 时刻的 context（千 token）
+  let c = 0;
+  for (const [u, d] of s.turns) { if (u <= t) c += d; else break; }
+  return c;
+}
+function lastTurnAt(s, t) {
+  let last = -Infinity;
+  for (const [u] of s.turns) { if (u <= t) last = u; else break; }
+  return last;
+}
+function residentAt(s, t, tau) {  // 窗口 (t-τ, t] 内有轮次
+  const last = lastTurnAt(s, t);
+  return last > -Infinity && t - last < tau;
+}
+function demandAt(t, tau) {
+  let sum = 0, k = 0;
+  for (const s of SESSIONS) if (residentAt(s, t, tau)) { sum += ctxAt(s, t); k++; }
+  return { sum, k };
+}
+
+/* ---------- 可视化 A1：轮次到达 ---------- */
+const A1 = { W: 860, H: 262, ml: 66, mr: 16, mt: 24, mb: 34 };
+const a1X = t => A1.ml + t / TMAX * (A1.W - A1.ml - A1.mr);
+const a1Y = i => A1.mt + (i + 0.5) * (A1.H - A1.mt - A1.mb) / NS;
+const a1RowH = (A1.H - A1.mt - A1.mb) / NS;
+const a1Svg = svgEl("svg", { viewBox: `0 0 ${A1.W} ${A1.H}`, class: "chart", role: "img", "aria-label": "session 轮次到达时间线" }, null);
+document.getElementById("arrivalPlot").appendChild(a1Svg);
+const a1Rows = [];
+SESSIONS.forEach((s, i) => {
+  a1Rows.push(svgEl("rect", { x: A1.ml, y: a1Y(i) - a1RowH / 2, width: A1.W - A1.ml - A1.mr, height: a1RowH, class: "ws-rowband" }, a1Svg));
+  svgEl("text", { x: A1.ml - 10, y: a1Y(i) + 4, "text-anchor": "end", class: "ticktext" }, a1Svg).textContent = s.name;
+});
+const a1Win = svgEl("rect", { y: A1.mt - 4, height: A1.H - A1.mt - A1.mb + 8, rx: 4, class: "win-band" }, a1Svg);
+const a1Edge = svgEl("line", { y1: A1.mt - 4, y2: A1.H - A1.mb + 4, class: "win-edge" }, a1Svg);
+const a1Dots = [];
+SESSIONS.forEach((s, i) => s.turns.forEach(([u]) => {
+  a1Dots.push({ si: i, u, el: svgEl("circle", { cx: a1X(u), cy: a1Y(i), r: 3, class: "ref-dot" }, a1Svg) });
+}));
+svgEl("text", { x: a1X(52), y: a1Y(1) + 4, class: "anno" }, a1Svg).textContent = "← 用户已离开——但系统无法区分离开与停顿";
+svgEl("text", { x: a1X(60), y: a1Y(2) + 4, class: "anno" }, a1Svg).textContent = "← 停顿 61 秒后回来";
+svgEl("line", { x1: A1.ml, x2: A1.W - A1.mr, y1: A1.H - A1.mb, y2: A1.H - A1.mb, class: "axisline" }, a1Svg);
+[0, 50, 100, 150, 200].forEach(tv =>
+  svgEl("text", { x: a1X(tv), y: A1.H - A1.mb + 16, "text-anchor": "middle", class: "ticktext" }, a1Svg).textContent = tv);
+svgEl("text", { x: A1.ml + (A1.W - A1.ml - A1.mr) / 2, y: A1.H - 2, "text-anchor": "middle", class: "axtext" }, a1Svg).textContent = "时间（秒，示意）";
+
+/* ---------- 可视化 A2：HBM 堆叠 ---------- */
+const A2 = { W: 860, H: 300, ml: 66, mr: 16, mt: 20, mb: 36 };
+const a2X = t => A2.ml + t / TMAX * (A2.W - A2.ml - A2.mr);
+const a2Y = v => A2.mt + (A2.H - A2.mt - A2.mb) * (1 - v / YMAX_KV);
+const a2Svg = svgEl("svg", { viewBox: `0 0 ${A2.W} ${A2.H}`, class: "chart", role: "img", "aria-label": "HBM 占用堆叠图" }, null);
+document.getElementById("stackPlot").appendChild(a2Svg);
+[0, 100, 200, 300, 400].forEach(v => {
+  svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(v), y2: a2Y(v), class: "gridline" }, a2Svg);
+  svgEl("text", { x: A2.ml - 8, y: a2Y(v) + 4, "text-anchor": "end", class: "ticktext" }, a2Svg).textContent = v;
+});
+const bandGroup = svgEl("g", {}, a2Svg);
+const overGroup = svgEl("g", {}, a2Svg);
+const capLine = svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, class: "cap-line" }, a2Svg);
+const capText = svgEl("text", { x: A2.W - A2.mr - 4, "text-anchor": "end", class: "cap-text" }, a2Svg);
+const a2Now = svgEl("line", { y1: A2.mt - 2, y2: A2.H - A2.mb + 2, class: "win-edge" }, a2Svg);
+svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(0), y2: a2Y(0), class: "axisline" }, a2Svg);
+[0, 50, 100, 150, 200].forEach(tv =>
+  svgEl("text", { x: a2X(tv), y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, a2Svg).textContent = tv);
+svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, a2Svg).textContent = "时间（秒，示意）";
+svgEl("text", { x: A2.ml - 40, y: 12, class: "axtext" }, a2Svg).textContent = "千 token";
+
+function buildStack(tau) {
+  /* 每个整数时刻：各 session 的 [bottom, top]（若驻留） */
+  const layers = SESSIONS.map(() => new Array(TMAX + 1).fill(null));
+  const totals = new Array(TMAX + 1).fill(0);
+  for (let t = 0; t <= TMAX; t++) {
+    let base = 0;
+    SESSIONS.forEach((s, i) => {
+      if (residentAt(s, t, tau)) {
+        const c = ctxAt(s, t);
+        layers[i][t] = [base, base + c];
+        base += c;
+      }
+    });
+    totals[t] = base;
+  }
+  return { layers, totals };
+}
+function pathFromRun(arr, t0, t1, xf, yf) {
+  /* arr[t] = [bottom, top]；生成 t0..t1 的阶梯多边形 */
+  let d = `M${xf(t0)},${yf(arr[t0][1])}`;
+  for (let t = t0 + 1; t <= t1; t++) d += `L${xf(t)},${yf(arr[t - 1][1])}L${xf(t)},${yf(arr[t][1])}`;
+  d += `L${xf(t1)},${yf(arr[t1][0])}`;
+  for (let t = t1 - 1; t >= t0; t--) d += `L${xf(t + 1)},${yf(arr[t][0])}L${xf(t)},${yf(arr[t][0])}`;
+  return d + "Z";
+}
+let stackCache = null;
+function redrawStack(tau, M) {
+  stackCache = buildStack(tau);
+  bandGroup.innerHTML = ""; overGroup.innerHTML = "";
+  stackCache.layers.forEach((arr, i) => {
+    let t0 = null;
+    for (let t = 0; t <= TMAX + 1; t++) {
+      const on = t <= TMAX && arr[t] !== null;
+      if (on && t0 === null) t0 = t;
+      if (!on && t0 !== null) {
+        const t1 = t - 1;
+        if (t1 > t0) {
+          const p = svgEl("path", { d: pathFromRun(arr, t0, t1, a2X, a2Y), class: "kv-band" }, bandGroup);
+          const tit = svgEl("title", {}, p);
+          tit.textContent = SESSIONS[i].name;
+        }
+        t0 = null;
+      }
+    }
+  });
+  /* 超出 M 的部分 */
+  const tot = stackCache.totals;
+  let t0 = null;
+  for (let t = 0; t <= TMAX + 1; t++) {
+    const on = t <= TMAX && tot[t] > M;
+    if (on && t0 === null) t0 = t;
+    if (!on && t0 !== null) {
+      const t1 = t - 1;
+      if (t1 >= t0) {
+        const seg = tot.map(v => [M, Math.max(v, M)]);
+        svgEl("path", { d: pathFromRun(seg, Math.max(0, t0 - 1), Math.min(TMAX, t1 + 1), a2X, a2Y), class: "kv-over" }, overGroup);
+      }
+      t0 = null;
+    }
+  }
+  capLine.setAttribute("y1", a2Y(M)); capLine.setAttribute("y2", a2Y(M));
+  capText.setAttribute("y", a2Y(M) - 6);
+  capText.textContent = `HBM 容量 M = ${M}k`;
+}
+
+/* ---------- 可视化 A 的状态 ---------- */
+const tSlider = document.getElementById("tSlider"), tauSlider = document.getElementById("tauSlider"), mSlider = document.getElementById("mSlider");
+const tOut = document.getElementById("tOut"), tauOut = document.getElementById("tauOut"), mOut = document.getElementById("mOut");
+let curT = +tSlider.value, curTau = +tauSlider.value, curM = +mSlider.value;
+
+function updateVizA(structChanged) {
+  if (structChanged) { redrawStack(curTau, curM); sTauChart.setMarker(snapEven(curTau)); mTauChart.setMarker(snapEven(curTau)); }
+  tOut.textContent = curT; tauOut.textContent = curTau; mOut.textContent = curM;
+  a1Win.setAttribute("x", a1X(Math.max(0, curT - curTau)));
+  a1Win.setAttribute("width", a1X(curT) - a1X(Math.max(0, curT - curTau)));
+  a1Edge.setAttribute("x1", a1X(curT)); a1Edge.setAttribute("x2", a1X(curT));
+  a2Now.setAttribute("x1", a2X(curT)); a2Now.setAttribute("x2", a2X(curT));
+  const inWs = SESSIONS.map(s => residentAt(s, curT, curTau));
+  a1Rows.forEach((r, i) => r.setAttribute("class", inWs[i] ? "ws-rowband on" : "ws-rowband"));
+  a1Dots.forEach(d => d.el.setAttribute("class",
+    inWs[d.si] && d.u <= curT && curT - d.u < curTau ? "ref-dot inwin" : "ref-dot"));
+  const { sum, k } = demandAt(curT, curTau);
+  document.getElementById("roT").textContent = curT + "s";
+  document.getElementById("roK").textContent = k + " 个";
+  document.getElementById("roSum").textContent = sum + "k token";
+  document.getElementById("roM").textContent = curM + "k";
+  document.getElementById("roStatus").innerHTML = sum <= curM
+    ? `<span class="ok">✓ 装得下</span>`
+    : `<span class="bad">⚠ 超出 ${sum - curM}k——必有 session 的前缀不完整</span>`;
+}
+tSlider.addEventListener("input", () => { curT = +tSlider.value; stopPlay(); updateVizA(false); });
+tauSlider.addEventListener("input", () => { curTau = +tauSlider.value; updateVizA(true); });
+mSlider.addEventListener("input", () => { curM = +mSlider.value; updateVizA(true); });
+const playBtn = document.getElementById("playBtn");
+let timer = null;
+function stopPlay() { if (timer) { clearInterval(timer); timer = null; playBtn.textContent = "▶ 播放"; } }
+playBtn.addEventListener("click", () => {
+  if (timer) { stopPlay(); return; }
+  playBtn.textContent = "⏸ 暂停";
+  timer = setInterval(() => { curT = curT >= TMAX ? 0 : curT + 1; tSlider.value = curT; updateVizA(false); }, 100);
+});
+
+/* ---------- 可视化 B：s(τ) 与 m(τ) ---------- */
+const snapEven = v => clamp(Math.round(v / 2) * 2, 2, 60);
+const sTauPts = [], mTauPts = [];
+const gaps = [];
+SESSIONS.forEach(s => { for (let j = 1; j < s.turns.length; j++) gaps.push(s.turns[j][0] - s.turns[j - 1][0]); });
+for (let tau = 2; tau <= 60; tau += 2) {
+  let acc = 0;
+  for (let t = 0; t <= TMAX; t++) acc += demandAt(t, tau).sum;
+  sTauPts.push([tau, +(acc / (TMAX + 1)).toFixed(1)]);
+  mTauPts.push([tau, +(gaps.filter(g => g > tau).length / gaps.length).toFixed(3)]);
+}
+const sTauChart = lineChart(document.getElementById("sTauChart"), {
+  h: 240, xMin: 2, xMax: 60, yMin: 0, yMax: 300,
+  xTicks: [2, 10, 20, 30, 40, 50, 60], yTicks: [0, 100, 200, 300],
+  xLabel: "保留窗口 τ（秒）", yLabel: "平均需求（千 token）",
+  xName: "τ", snap: snapEven, yFmt: fmtInt,
+  series: [{ name: "平均 HBM 需求 s(τ)", cls: "s1", points: sTauPts }],
+  ariaLabel: "平均 HBM 需求随窗口大小变化的折线图",
+});
+const mTauChart = lineChart(document.getElementById("mTauChart"), {
+  h: 240, xMin: 2, xMax: 60, yMin: 0, yMax: 1,
+  xTicks: [2, 10, 20, 30, 40, 50, 60], yTicks: [0, 0.25, 0.5, 0.75, 1],
+  xLabel: "保留窗口 τ（秒）", yLabel: "回头 miss 率",
+  xName: "τ", snap: snapEven, yFmt: v => Math.round(v * 100) + "%",
+  series: [{ name: "回头 miss 率 m(τ)", cls: "s1", points: mTauPts }],
+  ariaLabel: "回头 miss 率随窗口大小变化的折线图",
+});
+sTauChart.setMarker(snapEven(curTau)); mTauChart.setMarker(snapEven(curTau));
+document.getElementById("tauTable").innerHTML =
+  "<table><tr><th>τ (s)</th><th>s(τ) k tok</th><th>m(τ)</th></tr>" +
+  sTauPts.map((p, i) => `<tr><td>${p[0]}</td><td>${p[1]}</td><td>${(mTauPts[i][1] * 100).toFixed(1)}%</td></tr>`).join("") +
+  "</table>";
+
+/* ---------- 可视化 C：e–h 曲线族 ---------- */
+const RS = [{ r: 10, cls: "s1" }, { r: 100, cls: "s2" }, { r: 1000, cls: "s3" }];
+const ehChart = lineChart(document.getElementById("ehChart"), {
+  h: 270, mr: 30, xMin: 80, xMax: 100, yMin: 0, yMax: 1,
+  xTicks: [80, 85, 90, 95, 100], yTicks: [0, 0.25, 0.5, 0.75, 1],
+  xLabel: "命中率 h（%）", yLabel: "效率 e",
+  xName: "h", snap: v => clamp(Math.round(v * 2) / 2, 80, 100),
+  xFmt: v => v + "%", yFmt: v => Math.round(v * 100) + "%",
+  series: RS.map(({ r, cls }) => ({
+    name: `R = ${r}`, cls,
+    points: Array.from({ length: 41 }, (_, i) => {
+      const h = 80 + i * 0.5;
+      return [h, 1 / (1 + (1 - h / 100) * r)];
+    }),
+  })),
+  ariaLabel: "效率随命中率变化的折线图（三种惩罚比）",
+});
+document.getElementById("ehTable").innerHTML =
+  "<table><tr><th>h</th><th>R=10</th><th>R=100</th><th>R=1000</th></tr>" +
+  [80, 85, 90, 95, 98, 99, 99.5, 100].map(h =>
+    `<tr><td>${h}%</td>` + RS.map(({ r }) =>
+      `<td>${(100 / (1 + (1 - h / 100) * r)).toFixed(1)}%</td>`).join("") + "</tr>").join("") +
+  "</table>";
+
+/* ---------- 可视化 D：相图 + 悬崖 ---------- */
+const DELTA = 0.5;                 // 每轮新增（千 token）
+const NMAXP = 32, MSTEP = 50, MMAX = 1600;
+function hitRate(N, M, cbar) { return clamp((M - (N - 1) * cbar) / cbar, 0, 1); }
+function goodLRU(N, M, cbar) { const h = hitRate(N, M, cbar); return DELTA / (DELTA + (1 - h) * cbar); }
+function goodAdm(N, M, cbar) {
+  const K = Math.min(N, Math.floor(M / cbar));
+  if (K >= N) return 1;
+  return N * DELTA / (K * DELTA + (N - K) * (DELTA + cbar));
+}
+const PH = { W: 860, H: 420, ml: 66, mr: 16, mt: 20, mb: 44 };
+const phCw = (PH.W - PH.ml - PH.mr) / NMAXP, phRows = MMAX / MSTEP, phRh = (PH.H - PH.mt - PH.mb) / phRows;
+const phX = n => PH.ml + (n - 1) * phCw;                  // 单元格左边
+const phYc = m => PH.mt + (PH.H - PH.mt - PH.mb) * (1 - m / MMAX);  // 连续 M → y
+const phSvg = svgEl("svg", { viewBox: `0 0 ${PH.W} ${PH.H}`, class: "chart", role: "img", "aria-label": "goodput 相图" }, null);
+document.getElementById("phasePlot").appendChild(phSvg);
+const cellGroup = svgEl("g", {}, phSvg);
+const cells = [];
+for (let ri = 0; ri < phRows; ri++) {
+  const M = (ri + 1) * MSTEP;
+  for (let n = 1; n <= NMAXP; n++) {
+    const rect = svgEl("rect", {
+      x: phX(n), y: phYc(M), width: phCw + 0.5, height: phRh + 0.5,
+    }, cellGroup);
+    const tit = svgEl("title", {}, rect);
+    cells.push({ rect, tit, n, M });
+  }
+}
+[1, 8, 16, 24, 32].forEach(n =>
+  svgEl("text", { x: phX(n) + phCw / 2, y: PH.H - PH.mb + 16, "text-anchor": "middle", class: "ticktext" }, phSvg).textContent = n);
+[400, 800, 1200, 1600].forEach(m =>
+  svgEl("text", { x: PH.ml - 8, y: phYc(m) + phRh / 2 + 4, "text-anchor": "end", class: "ticktext" }, phSvg).textContent = fmtInt(m));
+svgEl("text", { x: PH.ml + (PH.W - PH.ml - PH.mr) / 2, y: PH.H - 4, "text-anchor": "middle", class: "axtext" }, phSvg).textContent = "并发 session 数 N";
+svgEl("text", { x: PH.ml - 40, y: 12, class: "axtext" }, phSvg).textContent = "HBM 容量 M（千 token）";
+const edgeLine = svgEl("line", { class: "edge-line" }, phSvg);
+const edgeLabel = svgEl("text", { class: "edge-label" }, phSvg);
+const phMarker = svgEl("circle", { r: 6, class: "s1-dot" }, phSvg);
+
+function binOf(g) {
+  const edges = [0.02, 0.05, 0.1, 0.25, 0.5, 0.75, 0.92];
+  let b = 0; while (b < edges.length && g > edges[b]) b++;
+  return b;   // 0..7
+}
+function redrawPhase(cbar) {
+  for (const c of cells) {
+    const g = goodLRU(c.n, c.M, cbar);
+    c.rect.setAttribute("style", `fill: var(--q${binOf(g)})`);
+    c.tit.textContent = `N=${c.n}, M=${fmtInt(c.M)}k：goodput ${(g * 100).toFixed(1)}%`;
+  }
+  /* 雪崩线 M = N·c̄，裁剪到绘图区 */
+  const n1 = 1, m1 = clamp(1 * cbar, MSTEP, MMAX);
+  const n2 = clamp(MMAX / cbar, 1, NMAXP), m2 = clamp(NMAXP * cbar, MSTEP, MMAX);
+  edgeLine.setAttribute("x1", phX(n1) + phCw / 2); edgeLine.setAttribute("y1", phYc(m1) + phRh / 2);
+  edgeLine.setAttribute("x2", phX(n2) + phCw / 2); edgeLine.setAttribute("y2", phYc(m2) + phRh / 2);
+  const ln = clamp(n2 * 0.62, 3, 26);
+  edgeLabel.setAttribute("x", phX(ln) + phCw / 2 + 6);
+  edgeLabel.setAttribute("y", phYc(clamp(ln * cbar, MSTEP, MMAX)) + phRh / 2 + 18);
+  edgeLabel.textContent = "雪崩线 M = N·c̄";
+}
+
+const cliffChart = lineChart(document.getElementById("cliffChart"), {
+  h: 260, xMin: 1, xMax: NMAXP, yMin: 0, yMax: 1,
+  xTicks: [1, 8, 16, 24, 32], yTicks: [0, 0.25, 0.5, 0.75, 1],
+  xLabel: "并发 session 数 N", yLabel: "Goodput",
+  xName: "N", snap: v => clamp(Math.round(v), 1, NMAXP),
+  yFmt: v => Math.round(v * 100) + "%",
+  series: [
+    { name: "块级 LRU 超卖", cls: "s1", points: [] },
+    { name: "session 级准入", cls: "s2", points: [] },
+  ],
+  ariaLabel: "goodput 随并发数变化的折线图",
+});
+
+const nSlider = document.getElementById("nSlider"), capSlider = document.getElementById("capSlider"), cbarSlider = document.getElementById("cbarSlider");
+const nOut = document.getElementById("nOut"), capOut = document.getElementById("capOut"), cbarOut = document.getElementById("cbarOut");
+function updateVizD(structChanged) {
+  const N = +nSlider.value, M = +capSlider.value, cbar = +cbarSlider.value;
+  nOut.textContent = N; capOut.textContent = M; cbarOut.textContent = cbar;
+  if (structChanged) {
+    redrawPhase(cbar);
+    cliffChart.setData(0, Array.from({ length: NMAXP }, (_, i) => [i + 1, goodLRU(i + 1, M, cbar)]));
+    cliffChart.setData(1, Array.from({ length: NMAXP }, (_, i) => [i + 1, goodAdm(i + 1, M, cbar)]));
+    document.getElementById("cliffTable").innerHTML =
+      "<table><tr><th>N</th><th>命中率 h</th><th>goodput（LRU）</th><th>goodput（准入）</th></tr>" +
+      Array.from({ length: NMAXP }, (_, i) => {
+        const n = i + 1;
+        return `<tr><td>${n}</td><td>${(hitRate(n, M, cbar) * 100).toFixed(0)}%</td>` +
+               `<td>${(goodLRU(n, M, cbar) * 100).toFixed(1)}%</td><td>${(goodAdm(n, M, cbar) * 100).toFixed(1)}%</td></tr>`;
+      }).join("") + "</table>";
+  }
+  phMarker.setAttribute("cx", phX(N) + phCw / 2);
+  phMarker.setAttribute("cy", phYc(clamp(Math.ceil(M / MSTEP) * MSTEP, MSTEP, MMAX)) + phRh / 2);
+  const h = hitRate(N, M, cbar), g = goodLRU(N, M, cbar);
+  document.getElementById("tileH").textContent = (h * 100).toFixed(0) + "%";
+  document.getElementById("tileHd").textContent = h >= 1 ? "工作集全部装下" : "回头必丢前缀";
+  document.getElementById("tileA").textContent = "×" + ((DELTA + (1 - h) * cbar) / DELTA).toFixed(1);
+  document.getElementById("tileG").textContent = (g * 100).toFixed(g > 0.99 ? 1 : 0) + "%";
+  document.getElementById("tileGd").textContent = "GPU 利用率仍是 100%";
+  cliffChart.setMarker(N);
+}
+nSlider.addEventListener("input", () => updateVizD(false));
+capSlider.addEventListener("input", () => updateVizD(true));
+cbarSlider.addEventListener("input", () => updateVizD(true));
+
+/* 初始渲染 */
+updateVizA(true);
+updateVizD(true);
+</script>
+</body>
+</html>

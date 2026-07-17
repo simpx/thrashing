@@ -301,6 +301,10 @@
   <p>在上面的模拟中勾选“工作集准入控制”即可看到效果：绿色曲线在 N = 4 处封顶——多余的进程排队等待而不是挤进内存，利用率稳定在峰值平台上，悬崖消失了。<b>用一点排队延迟，换来整个系统不崩溃。</b></p>
   <p>这一原理的后代遍布现代系统：Linux 的页面回收与 refault 检测、Windows 的进程工作集管理器、数据库缓冲池的驻留集控制，乃至 CPU 缓存分析中的“工作集大小”概念，都源自这篇 1968 年的论文。</p>
 
+  <div class="defbox">
+    <p><b>续篇</b>　这套理论并没有留在 1968 年：<a href="kvcache.html">《KV Cache 的工作集与雪崩》</a>把工作集与抖动泛化到 LLM 推理的 KV cache 管理——同样的骨架，六个本质差异，以及一条更锋利的雪崩线。</p>
+  </div>
+
   <h3>带走的四个要点</h3>
   <div class="takeaways">
     <div class="card"><b>工作集 = 最近 τ 次访问碰过的页</b><p>用过去预测未来，依据是程序的局部性。它是对进程真实内存需求的动态测量，而非静态猜测。</p></div>
@@ -311,6 +315,7 @@
 </section>
 
 <footer>
+  <p>续篇：<a href="kvcache.html">KV Cache 的工作集与雪崩 — 1968 年的理论如何解释 LLM 推理</a></p>
   <p>参考文献：
     Denning, P. J. <a href="https://dl.acm.org/doi/10.1145/363095.363141" rel="noopener">“The Working Set Model for Program Behavior”</a>, CACM 11(5), 1968 ·
     Denning, P. J. <a href="https://dl.acm.org/doi/10.1145/1476589.1476705" rel="noopener">“Thrashing: Its Causes and Prevention”</a>, AFIPS FJCC, 1968 ·
