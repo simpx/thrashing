@@ -246,7 +246,7 @@
     <div class="poolwrap">
       <div class="stackcol">
         <p class="chart-title">session 级 LRU 栈（顶 = 最近说话）</p>
-        <p class="chart-note">带子高度 = context；带内每段的横条是它的账本：<b>彩色长 = 命中次数，红色长 = 重算次数</b>，底色淡 = 新块还没立功；虚线可拖。</p>
+        <p class="chart-note">带子高度 = context；红色烧痕 = 被逐出重算过（越深遍数越多）；虚线可拖。勾选“块级账本”可看每段的命中（彩）/重算（红）横条。</p>
         <div id="stackBox"></div>
       </div>
       <div class="poolctl">
@@ -260,6 +260,7 @@
           <label>进度<input type="range" id="poolPos" min="0" max="33" step="1" value="33"><output id="poolPosOut">33</output>/33 轮</label>
           <label>速度<input type="range" id="poolSpeed" min="0.5" max="4" step="0.5" value="1.5"><output id="poolSpeedOut">1.5</output>轮/s</label>
           <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="60" max="240" step="10" value="120"><output id="mOut">120</output>k</label>
+          <label><input type="checkbox" id="ledgerTog"> 块级账本</label>
         </div>
       </div>
       <div class="poolinfo">
@@ -280,7 +281,7 @@
     <p class="chart-note">红圈 = 在当前 M 下回来要重算的轮；实心 = 回放进度。</p>
     <div class="chart-wrap" id="timeStrip"></div>
   </div>
-  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。带子内部是块级的<b>账本</b>：每段前缀一行横条，<b>彩色长度 = 命中次数（立过的功），红色长度 = 重算次数（翻过的烧饼）</b>——这就是 OS 里 refault 计数的 KV 版。同样一次重算，可惜程度全然不同：头部满宽的段是命中多次的老兵，几乎全红的中段是纯翻烧饼，底色淡淡的尾段是还没立功就被烧的新兵——悬停任一段可见精确数字。</p>
+  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。带子上的<b>烧痕</b>还记着块级的账：同一段前缀被烧了几遍颜色就有多深——OS 里 refault 计数的 KV 版。想分辨“老兵被烧”和“新兵夭折”，勾选<b>块级账本</b>：带内换成每段的横条，彩色长 = 命中次数、红色长 = 重算次数，或直接悬停任一段看精确数字。</p>
 </section>
 
 <section id="cliff">
@@ -540,11 +541,19 @@ document.getElementById("ehTable").innerHTML =
   divider.innerHTML = '<div class="tag"></div>'; box.appendChild(divider);
   const bands = SESSIONS.map((sn, si) => {
     const b = document.createElement("div");
-    b.className = "band";
-    b.style.background = `color-mix(in srgb, var(--series-${si + 1}) 32%, var(--page))`;
+    b.className = "band"; b.style.background = `var(--series-${si + 1})`;
     b.style.display = "none"; box.insertBefore(b, wash);
     return b;
   });
+  const ledgerTog = document.getElementById("ledgerTog");
+  function bandBase() {
+    bands.forEach((b, si) => {
+      b.style.background = ledgerTog.checked
+        ? `color-mix(in srgb, var(--series-${si + 1}) 32%, var(--page))`
+        : `var(--series-${si + 1})`;
+    });
+  }
+  ledgerTog.addEventListener("change", () => { bandBase(); refreshHeat(); });
   const mSlider = document.getElementById("mSlider"), mOut = document.getElementById("mOut");
   const logEl = document.getElementById("poolLog");
   let M = +mSlider.value;
@@ -612,21 +621,31 @@ document.getElementById("ehTable").innerHTML =
         const hits = Math.max(0, turnsDone[si] - 1 - born - v);
         const tt = `会话 ${si + 1} 前缀 ${p}–${q}k（第 ${born + 1} 轮出生）：命中 ${hits} 次，被逐出重算 ${v} 次`;
         const top = (p * S).toFixed(1) + "px", ht = ((q - p) * S).toFixed(1) + "px";
-        if (hits > 0) {
-          const hb = document.createElement("div");
-          hb.className = "hitbar";
-          hb.style.top = top; hb.style.height = ht;
-          hb.style.width = (hits / Tn * 100) + "%";
-          hb.style.background = `var(--series-${si + 1})`;
-          hb.title = tt;
-          b.appendChild(hb);
-        }
-        if (v > 0) {
+        if (ledgerTog.checked) {
+          if (hits > 0) {
+            const hb = document.createElement("div");
+            hb.className = "hitbar";
+            hb.style.top = top; hb.style.height = ht;
+            hb.style.width = (hits / Tn * 100) + "%";
+            hb.style.background = `var(--series-${si + 1})`;
+            hb.title = tt;
+            b.appendChild(hb);
+          }
+          if (v > 0) {
+            const rb = document.createElement("div");
+            rb.className = "heat";
+            rb.style.top = top; rb.style.height = ht;
+            rb.style.left = (hits / Tn * 100) + "%";
+            rb.style.width = (v / Tn * 100) + "%";
+            rb.title = tt;
+            b.appendChild(rb);
+          }
+        } else if (v > 0) {
           const rb = document.createElement("div");
           rb.className = "heat";
           rb.style.top = top; rb.style.height = ht;
-          rb.style.left = (hits / Tn * 100) + "%";
-          rb.style.width = (v / Tn * 100) + "%";
+          rb.style.left = "0"; rb.style.width = "100%";
+          rb.style.opacity = Math.min(.22 + .2 * v, .78);
           rb.title = tt;
           b.appendChild(rb);
         }
