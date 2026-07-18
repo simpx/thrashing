@@ -106,12 +106,15 @@
   @media (max-width: 640px) {
     .poolwrap { display: flex; flex-direction: column; }
     .poolinfo { order: -1; }
-    .stackcol { max-width: 260px; }
+    .stackcol { max-width: 220px; }
     #poolLog { min-height: 0; }
+    #pool .controls { gap: 8px 14px; }
+    #pool button.play { padding: 4px 10px; font-size: 13px; }
+    #pool .controls input[type=range] { width: 130px; }
   }
-  #stackBox { position: relative; height: 372px; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); overflow: hidden; }
-  .band { position: absolute; left: 6px; right: 6px; border-radius: 5px; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; padding: 2px 8px 0; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
-  .band .bsub { font-weight: 400; font-size: 10px; opacity: .92; }
+  #stackBox { position: relative; height: 372px; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); overflow: hidden; transition: height .35s cubic-bezier(.3,.8,.35,1); }
+  .band { position: absolute; left: 6px; right: 6px; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; padding: 1px 7px 0; font-size: 10.5px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
+  .band .bsub { font-weight: 400; font-size: 9.5px; opacity: .92; }
   .band span { position: relative; z-index: 1; }
   .band .heat { position: absolute; left: 0; right: 0; z-index: 0; background: var(--status-critical); }
   table.sstats { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
@@ -157,6 +160,11 @@
   @media (max-width: 640px) {
     header.hero h1 { font-size: 26px; }
     .controls input[type=range] { width: 110px; }
+    .tiles { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+    .tile { padding: 8px 10px; }
+    .tile .tv { font-size: 20px; }
+    .tile .td { font-size: 11px; }
+    table.sstats { font-size: 11.5px; }
   }
 </style>
 </head>
@@ -510,7 +518,8 @@ document.getElementById("ehTable").innerHTML =
   EVENTS.sort((a, b) => a.u - b.u);
   const RET = new Map(RETURNS.map(r => [r.si * 100 + r.k, r]));
   const box = document.getElementById("stackBox");
-  const S = 1.3, PAD = 6;                        /* 竖直比例：px / 千 token */
+  const S = matchMedia("(max-width: 640px)").matches ? 1 : 1.3;  /* 竖直比例：px / 千 token */
+  const PAD = 6;
   const wash = document.createElement("div"); wash.id = "ghostWash"; box.appendChild(wash);
   const divider = document.createElement("div"); divider.id = "mDivider";
   divider.innerHTML = '<div class="tag"></div>'; box.appendChild(divider);
@@ -534,19 +543,27 @@ document.getElementById("ehTable").innerHTML =
       b.style.display = "flex";
       b.style.top = (PAD + off * S) + "px";
       b.style.height = Math.max(3, h - 1) + "px";
-      b.innerHTML = h >= 15
-        ? `<span>会话 ${si + 1} · ${ctx[si]}k</span>` + (h >= 30 && age > 0 ? `<span class="bsub">闲 ${age}s</span>` : "")
+      b.innerHTML = h >= 17
+        ? `<span>会话 ${si + 1} · ${ctx[si]}k</span>` + (h >= 34 && age > 0 ? `<span class="bsub">闲 ${age}s</span>` : "")
         : "";
       b.title = `会话 ${si + 1}：context ${ctx[si]}k，深度 ${off}k–${off + ctx[si]}k，闲置 ${age}s`;
       off += ctx[si];
     }
     bands.forEach((b, si) => { if (!order.includes(si)) b.style.display = "none"; });
+    fitBox();
+  }
+  /* 箱子贴着内容长高：至少容下当前池子和容量线 */
+  function fitBox() {
+    let total = 0;
+    for (const si of order) total += ctx[si];
+    box.style.height = (PAD * 2 + Math.max(total * S, M * S + 26)) + "px";
   }
   function layoutM() {
     const y = PAD + M * S;
     divider.style.top = y + "px";
     divider.querySelector(".tag").textContent = `M = ${M}k`;
     wash.style.top = (y + 1) + "px";
+    fitBox();
   }
   function tiles() {
     let re = 0, miss = 0;
