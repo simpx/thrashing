@@ -93,6 +93,8 @@
   .axtext    { fill: var(--text-secondary); font-size: 12px; }
   .bandtext  { fill: var(--muted); font-size: 11px; }
   .anno      { fill: var(--muted); font-size: 11px; font-style: italic; }
+  .anno.strong { fill: var(--text-secondary); font-style: normal; font-weight: 600; }
+  .measure   { stroke: var(--muted); stroke-width: 1; }
   .s1-line { stroke: var(--series-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s2-line { stroke: var(--series-2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s3-line { stroke: var(--series-3); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
@@ -188,23 +190,24 @@
     <p><b>定义（单个 session）</b>　一个 session 在时刻 <em class="v">t</em>、存活期 <em class="v">τ</em> 下的工作集：若它在最近 <em class="v">τ</em> 秒内有过轮次到达，就是它的<b>全部前缀 KV</b>；否则为空集。没有中间状态——前篇的工作集是逐页进出窗口的，这里一旦活跃就是整个前缀，因为 attention 需要完整历史。</p>
     <p>局部性也还在，只是换了地方：session 内部没有局部性可言——每轮都要摸全部历史 block，块级访问是“循环全扫”。<b>所有的局部性都在时间维度上</b>：刚说过话的 session 大概率马上还会说话（用户还在对话界面前），沉默越久回来的概率越低。这里的“轮次间隔”（分时系统文献里的老词 think time，指用户读回复、打字的时间，与模型的 thinking 无关）就是前篇引用串局部性的转世。</p>
   </div>
-  <p>先钉一句关键的话：<b>单独一个 session、内存无限时，它永远不会 miss</b>（首轮除外）——块不会自己坏掉，miss 的唯一来源是沉默期间块被<b>容量压力</b>挤掉了。所以存活期不是这个 session 自己的属性，而是<b>环境强加给它的</b>。但注意：对一个 session 而言，池子里的一切——容量多大、别人有多少人、说话多频繁、LRU 怎么排——它统统看不见，最终只通过<b>一个数字</b>作用到它身上：<b>“我沉默多久之后，块会没掉”</b>。这个数就是存活期 τ，池子定价、session 被动接受的“沉默的价格”。</p>
-  <p>于是本节的读法是：把 τ 当外生常数（压力稳定的近似），问“<b>生活在存活期为 τ 的环境里，这个 session 的账怎么算</b>”。这和前篇 4.2 节的生存期曲线 L(f) 是同一个结构——那里的 f（分到的帧数）同样不是进程自己的属性，而是外部分给的：<b>前篇外部分给你的是空间（f 帧），这里外部分给你的是时间（存活 τ 秒）</b>。单体先带参数算账，群体（第 5 节）再解释参数从哪来：LRU 池会把它挤成一个波动的读数 τ<sub>eff</sub>。</p>
-  <p>为什么单体的参数是时间而不是容量？因为 LRU <b>按沉默时长索价，不按体积索价</b>：回来得快，块全在（哪怕你占 90k——recency 还新，没人碰你）；回来得慢，块没了（哪怕你只占 5k——你沉到了队尾）。体积决定的不是“会不会被吃”，而是“被吃时账单多大”（第 4 节的 R）。“超出容量的部分才重算”是<b>池子层</b>的事实——超出多少取决于别人的需求，孤立分析里没有这个量，它在第 5 节登场（那里重算量 = 被挤掉多少补多少，带子被渐进削顶）。本图还做了一个标准简化（缓存理论的“特征时间”近似）：把渐进的尾部侵蚀压扁成瞬时全灭——短沉默全活、长沉默全灭这两端是精确的，中间“半截被吃”的过渡被压扁，第 5 节里能看到它真实的样子。</p>
-  <p>既然工作集全有或全无，一张图就必须同时记<b>两本账</b>：<b>内存账</b>（灰色区域 = KV 驻留在 HBM 的时段，高度 = context 大小）和<b>计算账</b>（每轮一根柱子 = 这一轮实际要算多少 token）。间隔不超过存活期 τ 的轮次是蓝柱——只算新增的一小截；间隔超过 τ 的轮次是红柱——前缀已被挤掉，<b>整个历史全量重算</b>，柱子一下子顶到 context 全高。这个 session 的常规节奏是 8–12 秒一轮，中间有 19、34、36 秒三次长停顿：</p>
+  <p>孤立的 session 永不 miss（首轮除外）——能夺走块的只有别人的压力，而压力落到单个 session 身上只剩一个数字：<b>沉默多久，块会没</b>。这就是<b>存活期 τ</b>；第 5 节会看到池子怎么把它挤出来，这里先当常数。<b>拖动 τ，看图上的标注翻转：</b></p>
   <div class="card">
     <div class="controls">
       <label>存活期 <em class="v">τ</em><input type="range" id="soloTau" min="5" max="60" value="15"><output id="soloTauOut">15</output>s</label>
     </div>
-    <div class="legend"><span><span class="key k1"></span>命中轮：只算新增 δ</span><span><span class="key" style="background:var(--status-critical)"></span>重算轮：整个前缀重算</span><span style="color:var(--muted)">灰色区域 = KV 驻留在 HBM 的时段</span></div>
+    <div class="legend"><span><span class="key k1"></span>命中轮：只算新增</span><span><span class="key" style="background:var(--status-critical)"></span>重算轮：整个前缀重算</span><span style="color:var(--muted)">灰色 = KV 驻留在 HBM 的时段，高度 = context</span></div>
     <div class="chart-wrap" id="soloPlot"></div>
     <div class="tiles">
       <div class="tile"><div class="tl">平均 HBM 占用</div><div class="tv" id="soloMem">—</div><div class="td">灰色面积 ÷ 总时长（千 token）</div></div>
       <div class="tile"><div class="tl">总计算量</div><div class="tv" id="soloCost">—</div><div class="td" id="soloWaste"></div></div>
       <div class="tile"><div class="tl">该 session 的 goodput</div><div class="tv" id="soloGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
     </div>
+    <details class="tbl"><summary>为什么参数是时间，而不是容量？</summary>
+      <p>孤立的 session 里，容量造不出 miss：只要 context 装得下，永远没有东西被逐出。能夺走块的只有别人的压力，而 LRU <b>按沉默时长索价、不按体积</b>——回来快，90k 也全命中；回来慢，5k 也被吃光。体积只决定被吃时的账单大小（第 4 节的 R）。“超出容量的部分才重算”是池子层的事实——超出多少取决于别人的需求，孤立分析里没有这个量，它在第 5 节登场（那里重算量 = 被挤掉多少补多少）。</p>
+      <p>本图的简化（缓存理论的“特征时间”近似）：把渐进的尾部侵蚀压扁成“沉默满 τ 瞬间全灭”——短沉默全活、长沉默全灭两端精确，中间“半截被吃”的过渡在第 5 节可见。</p>
+    </details>
   </div>
-  <p>拖动 τ 就能看到那笔交易：<b>τ 调小，灰色面积缩水（HBM 省了），但红柱冒出来（重算账单来了）</b>——goodput 从 100% 一路掉。τ 调大则相反：红柱消失，代价是这个 session 沉默期间一直占着 HBM。KV 在计算的那一刻必须全量在场，谁也省不掉；存活期买卖的只是沉默期间留不留——<b>留 = 用 HBM 换掉未来的重算，丢 = 用未来的重算换出 HBM</b>。而“能存活多久”这个决定，现实中不是谁拍板的参数，是池子里竞争的结果。</p>
+  <p><b>留 = 用 HBM 换掉未来的重算；丢 = 用未来的重算换出 HBM。</b>τ 是这笔交换的期限——而它由池子决定，不由 session 自己（第 5 节）。</p>
 
 </section>
 
@@ -470,6 +473,14 @@ document.getElementById("soloPlot").appendChild(soSvg);
 });
 const soloFootGroup = svgEl("g", {}, soSvg);
 const soloBarGroup = svgEl("g", {}, soSvg);
+const soloAnnoGroup = svgEl("g", {}, soSvg);
+function soloMeasure(x1, x2, y, label) {
+  svgEl("line", { x1: soX(x1), x2: soX(x2), y1: soY(y), y2: soY(y), class: "measure" }, soloAnnoGroup);
+  for (const x of [x1, x2])
+    svgEl("line", { x1: soX(x), x2: soX(x), y1: soY(y) - 3, y2: soY(y) + 3, class: "measure" }, soloAnnoGroup);
+  svgEl("text", { x: (soX(x1) + soX(x2)) / 2, y: soY(y) - 7, "text-anchor": "middle", class: "anno strong" }, soloAnnoGroup)
+    .textContent = label;
+}
 svgEl("line", { x1: SO.ml, x2: SO.W - SO.mr, y1: soY(0), y2: soY(0), class: "axisline" }, soSvg);
 [0, 50, 100, 150, 200].forEach(tv =>
   svgEl("text", { x: soX(tv), y: SO.H - SO.mb + 16, "text-anchor": "middle", class: "ticktext" }, soSvg).textContent = tv);
@@ -477,7 +488,13 @@ svgEl("text", { x: SO.ml + (SO.W - SO.ml - SO.mr) / 2, y: SO.H - 2, "text-anchor
 svgEl("text", { x: SO.ml - 40, y: 12, class: "axtext" }, soSvg).textContent = "千 token";
 
 function redrawSolo(tau) {
-  soloFootGroup.innerHTML = ""; soloBarGroup.innerHTML = "";
+  soloFootGroup.innerHTML = ""; soloBarGroup.innerHTML = ""; soloAnnoGroup.innerHTML = "";
+  /* 图上标注：两个代表性间隔，文字随 τ 翻转 */
+  soloMeasure(14, 24, 22, `间隔 10s ${10 <= tau ? "≤ τ：命中，只算新增" : "＞ τ：块已被挤出，重算"}`);
+  soloMeasure(41, 75, 34, `沉默 34s ${34 <= tau ? "≤ τ：块还在，回来命中" : "＞ τ：块已被挤出，整段重算"}`);
+  if (tau < 34)
+    svgEl("text", { x: soX(41 + tau) + 5, y: soY(20), class: "anno" }, soloAnnoGroup)
+      .textContent = "← 存活满 τ，被挤出";
   /* 内存账：驻留期间的 context 面积 */
   const pts = [];
   for (let t = 0; t <= TMAX; t++) pts.push(residentAt(SOLO, t, tau) ? ctxAt(SOLO, t) : 0);
