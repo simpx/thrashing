@@ -99,18 +99,24 @@
   .seg-re  { fill: var(--status-critical); opacity: .82; stroke: var(--surface-1); stroke-width: 2; }
   .cap-line { stroke: var(--text-secondary); stroke-width: 1.5; }
   .cap-text { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
-  .poolwrap { display: grid; grid-template-columns: 200px minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 0 18px; }
-  .stackcol { grid-row: 1 / 3; min-width: 0; }
+  .poolwrap { display: grid; grid-template-columns: 200px minmax(0, 1fr); grid-template-rows: auto auto 1fr; gap: 0 18px; }
+  .stackcol { grid-row: 1 / 4; min-width: 0; }
+  .poolctl { min-width: 0; }
+  .poolctl .controls { margin: 0 0 8px; }
   .poolinfo, .poolstats { min-width: 0; }
   #poolLog { min-height: 3.6em; }
   @media (max-width: 640px) {
-    .poolwrap { display: flex; flex-direction: column; }
-    .poolinfo { order: -1; }
-    .stackcol { max-width: 220px; }
+    .poolwrap { grid-template-columns: minmax(0, 1.2fr) minmax(118px, 1fr); gap: 0 12px; }
+    .stackcol { grid-row: 1; grid-column: 1; }
+    .stackcol .chart-note { display: none; }
+    .poolctl { grid-column: 2; grid-row: 1; }
+    .poolinfo { grid-column: 1 / 3; grid-row: 2; }
+    .poolstats { grid-column: 1 / 3; grid-row: 3; }
     #poolLog { min-height: 0; }
-    #pool .controls { gap: 8px 14px; }
-    #pool button.play { padding: 4px 10px; font-size: 13px; }
-    #pool .controls input[type=range] { width: 130px; }
+    #pool .controls { gap: 8px; }
+    #pool .controls label { flex-flow: row wrap; gap: 2px 6px; }
+    #pool .controls label input[type=range] { order: 5; flex-basis: 100%; width: auto; }
+    #pool button.play { padding: 5px 8px; font-size: 12.5px; width: 100%; }
   }
   #stackBox { position: relative; height: 372px; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); overflow: hidden; transition: height .35s cubic-bezier(.3,.8,.35,1); }
   .band { position: absolute; left: 6px; right: 6px; border-radius: 4px; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; padding: 1px 7px 0; font-size: 10.5px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
@@ -234,20 +240,24 @@
     <p>栈的顺序与 M 无关——<b>拖动容量线，只有“命中还是重算”在翻转，栈本身一格不动</b>：一遍回放，回答所有容量（Mattson 1970 的老技巧）。</p>
   </div>
   <div class="card">
-    <div class="controls">
-      <button class="play" id="poolPlay">▶ 从头回放</button>
-      <button class="play" id="poolPrev">‹ 上一步</button>
-      <button class="play" id="poolStep">下一步 ›</button>
-      <button class="play" id="poolFF">⏭ 跳到结局</button>
-      <label>进度<input type="range" id="poolPos" min="0" max="33" step="1" value="33"><output id="poolPosOut">33</output>/33 轮</label>
-      <label>速度<input type="range" id="poolSpeed" min="0.5" max="4" step="0.5" value="1.5"><output id="poolSpeedOut">1.5</output>轮/s</label>
-      <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="60" max="240" step="10" value="120"><output id="mOut">120</output>k</label>
-    </div>
     <div class="poolwrap">
       <div class="stackcol">
         <p class="chart-title">session 级 LRU 栈（顶 = 最近说话）</p>
         <p class="chart-note">带子高度 = 该会话的 context；红色烧痕 = 这段前缀被逐出重算过（越深遍数越多）；虚线可拖。</p>
         <div id="stackBox"></div>
+      </div>
+      <div class="poolctl">
+        <div class="controls">
+          <button class="play" id="poolPlay">▶ 从头回放</button>
+          <button class="play" id="poolPrev">‹ 上一步</button>
+          <button class="play" id="poolStep">下一步 ›</button>
+          <button class="play" id="poolFF">⏭ 跳到结局</button>
+        </div>
+        <div class="controls">
+          <label>进度<input type="range" id="poolPos" min="0" max="33" step="1" value="33"><output id="poolPosOut">33</output>/33 轮</label>
+          <label>速度<input type="range" id="poolSpeed" min="0.5" max="4" step="0.5" value="1.5"><output id="poolSpeedOut">1.5</output>轮/s</label>
+          <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="60" max="240" step="10" value="120"><output id="mOut">120</output>k</label>
+        </div>
       </div>
       <div class="poolinfo">
         <p class="chart-title">正在发生什么</p>
