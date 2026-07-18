@@ -19,13 +19,9 @@
     --series-1:      #2a78d6;
     --series-2:      #008300;
     --series-3:      #e87ba4;
-    --status-good:   #0ca30c;
     --status-critical:#d03b3b;
     --wash-1:        rgba(42,120,214,0.10);
     --band-fill:     rgba(137,135,129,0.28);
-    --band-hot:      rgba(42,120,214,0.38);
-    --q0:#cde2fb; --q1:#9ec5f4; --q2:#6da7ec; --q3:#3987e5;
-    --q4:#256abf; --q5:#184f95; --q6:#104281; --q7:#0d366b;
   }
   @media (prefers-color-scheme: dark) {
     :root:where(:not([data-theme="light"])) {
@@ -43,9 +39,6 @@
       --series-3:      #d55181;
       --wash-1:        rgba(57,135,229,0.14);
       --band-fill:     rgba(137,135,129,0.30);
-      --band-hot:      rgba(57,135,229,0.48);
-      --q0:#0d366b; --q1:#104281; --q2:#1c5cab; --q3:#256abf;
-      --q4:#3987e5; --q5:#5598e7; --q6:#86b6ef; --q7:#b7d3f6;
     }
   }
   * { box-sizing: border-box; }
@@ -61,7 +54,6 @@
   .backlink { font-size: 14px; margin-bottom: 16px; }
   section { margin-top: 48px; }
   h2 { font-size: 24px; margin: 0 0 12px; }
-  h3 { font-size: 18px; margin: 28px 0 8px; }
   p  { margin: 10px 0; }
   .kicker { color: var(--series-1); font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
   .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 20px 20px 16px; margin: 16px 0; }
@@ -81,8 +73,6 @@
   button.play:hover { border-color: var(--series-1); }
   .readout { font-size: 14px; color: var(--text-secondary); margin: 8px 0 0; }
   .readout code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--wash-1); border-radius: 5px; padding: 1px 7px; color: var(--text-primary); }
-  .readout .ok  { color: var(--status-good); font-weight: 600; }
-  .readout .bad { color: var(--status-critical); font-weight: 600; }
   .chart-wrap { position: relative; margin-top: 10px; }
   svg.chart { width: 100%; height: auto; display: block; }
   .chart-title { font-size: 14px; font-weight: 600; margin: 14px 0 0; }
@@ -91,11 +81,9 @@
   .axisline { stroke: var(--baseline); stroke-width: 1; }
   .ticktext  { fill: var(--muted); font-size: 11px; }
   .axtext    { fill: var(--text-secondary); font-size: 12px; }
-  .bandtext  { fill: var(--muted); font-size: 11px; }
   .anno      { fill: var(--muted); font-size: 11px; font-style: italic; }
   .anno.strong { fill: var(--text-secondary); font-style: normal; font-weight: 600; }
-  .anno.halo   { fill: var(--text-secondary); font-style: normal; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3.5; stroke-linejoin: round; }
-  .measure   { stroke: var(--muted); stroke-width: 1; }
+  .anno.halo { fill: var(--text-secondary); font-size: 11px; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3.5; stroke-linejoin: round; }
   .s1-line { stroke: var(--series-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s2-line { stroke: var(--series-2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s3-line { stroke: var(--series-3); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
@@ -103,29 +91,18 @@
   .s2-dot  { fill: var(--series-2); stroke: var(--surface-1); stroke-width: 2; }
   .s3-dot  { fill: var(--series-3); stroke: var(--surface-1); stroke-width: 2; }
   .crosshair { stroke: var(--baseline); stroke-width: 1; }
-  .ref-dot      { fill: var(--muted); opacity: .5; }
-  .ref-dot.hit  { fill: var(--series-1); opacity: .85; }
-  .ref-dot.miss { fill: var(--status-critical); opacity: .9; }
-  .demand-line  { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
-  .kv-debt      { fill: var(--status-critical); opacity: .13; }
-  .solo-foot    { fill: var(--band-fill); }
-  .bar-hit      { fill: var(--series-1); }
-  .bar-miss     { fill: var(--status-critical); }
-  .seg-hit      { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
-  .seg-new      { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
-  .seg-re       { fill: var(--status-critical); opacity: .82; stroke: var(--surface-1); stroke-width: 2; }
-  .ws-rowband   { fill: var(--series-1); opacity: 0; }
-  .ws-rowband.on{ opacity: .10; }
-  .win-band     { fill: var(--series-1); opacity: .08; }
-  .win-edge     { stroke: var(--series-1); stroke-width: 1.5; }
-  .kv-band      { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
-  .now-seg      { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 1.5; }
-  .now-seg.over { fill: var(--status-critical); }
-  .kv-over      { fill: var(--status-critical); opacity: .4; }
-  .cap-line     { stroke: var(--text-secondary); stroke-width: 1.5; }
-  .cap-text     { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
-  .edge-line    { stroke: var(--text-primary); stroke-width: 1.5; stroke-dasharray: 5 4; }
-  .edge-label   { fill: var(--text-primary); font-size: 12px; font-weight: 600; paint-order: stroke; stroke: var(--surface-1); stroke-width: 4; stroke-linejoin: round; }
+  .seg-hit { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
+  .seg-new { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
+  .seg-re  { fill: var(--status-critical); opacity: .82; stroke: var(--surface-1); stroke-width: 2; }
+  .kv-band { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
+  .kv-debt { fill: var(--status-critical); opacity: .13; }
+  .demand-line { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
+  .cap-line { stroke: var(--text-secondary); stroke-width: 1.5; }
+  .cap-text { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
+  .now-seg  { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 1.5; }
+  .ref-dot.hit  { fill: var(--series-1); }
+  .ref-dot.miss { fill: var(--status-critical); }
+  .win-edge { stroke: var(--series-1); stroke-width: 1.5; }
   .tt { position: absolute; pointer-events: none; display: none; z-index: 5; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: 7px 11px; font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; line-height: 1.6; }
   .tt b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
   .tt .key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
@@ -162,28 +139,23 @@
   <p class="backlink"><a href="index.html">← 前篇：工作集与抖动 — 看懂 Denning 的 1968</a></p>
   <div class="kicker">经典理论的现代转世</div>
   <h1>KV Cache 的工作集与雪崩<br>1968 年的理论如何解释 LLM 推理</h1>
-  <p class="sub">Prefill 节点的 HBM 里塞着许多 session 的 KV cache，谁该留、留多久、超卖了会发生什么——这组问题和 1968 年"给每个进程多少内存"的问题惊人地同构，又在几个关键地方彻底不同。本页沿用前篇的路线：先看清工作集，再走到雪崩边缘。</p>
+  <p class="sub">Prefill 节点的 HBM 里塞着许多 session 的 KV cache。谁该留、留多久、超卖了会发生什么——这组问题和 1968 年“给每个进程多少内存”的问题同构。本页只讲四个关键点，一节一个。</p>
 </header>
 
 <section id="map">
   <div class="kicker">映射</div>
   <h2>1. 从分页内存到 KV Cache：一张对照表</h2>
-  <p>只考虑 <b>prefill 节点</b>：一个 session 是一条多轮对话轨迹，每轮到达时追加一段输入；计算这一轮时要对全部历史做 attention，所以该 session 的<b>整个前缀 KV 必须驻留</b>在 HBM 中。对照 1968 年的世界：</p>
+  <p>只考虑 <b>prefill 节点</b>：一个 session 是多轮对话，每轮到达时追加一段输入，计算这一轮时要对全部历史做 attention。对照 1968 年的世界：</p>
   <table class="mapt">
     <tr><th>Denning 1968</th><th>LLM Prefill 节点</th></tr>
     <tr><td>进程</td><td>Session（多轮对话）</td></tr>
     <tr><td>内存页</td><td>KV cache block</td></tr>
     <tr><td>物理内存 M</td><td>HBM 中的 KV cache 池</td></tr>
-    <tr><td>引用串</td><td>各 session 轮次到达的交错序列</td></tr>
-    <tr><td>缺页 → 读磁盘</td><td>前缀不在 → <b>重算</b>（re-prefill）</td></tr>
-    <tr><td>缺页服务时间 T（常数）</td><td>重算耗时 ∝ 丢失的 token 数（随 session 变老而增大）</td></tr>
+    <tr><td>缺页 → 读磁盘</td><td>缓存不在 → <b>重算</b>（re-prefill）</td></tr>
+    <tr><td>缺页服务时间 T（常数）</td><td>重算耗时 ∝ 丢失的 token 数</td></tr>
     <tr><td>CPU 利用率</td><td><b>Goodput</b>：GPU 算力中花在“新 token”上的比例</td></tr>
-    <tr><td>工作集 W(t, τ)</td><td>最近 τ 内有过轮次的 session 的前缀之并</td></tr>
   </table>
-  <p>三个必须先说清的澄清：</p>
-  <p><b>① Miss 不是卡死，是重算。</b>token 文本本身就是“后备存储”——任何 KV 都能从文本重新算出来，只是贵。所以 KV cache 严格说不是请求调页，而是<b>物化视图</b>：数据永远可再生，问题只是你愿不愿意付这个 GPU 账单。真正的三选一是：命中（便宜）、重算（贵，且要挤占别人的空间）、排队（延迟）。</p>
-  <p><b>② 部分前缀有部分价值，但只能从尾巴逐出。</b>保留最长连续前缀就能省下等长的重算（vLLM / SGLang 的 prefix cache 正是这么做的）；可要是从中间挖走一块，洞之后的所有 block 实际上都废了。前篇“逐出完整工作集、不要人人剃一刀”的教训，在这里的形态是：<b>逐出永远从 session 的尾部开始</b>。</p>
-  <p><b>③ 工作集原理在轮内是被硬件强制的。</b>Denning 要靠调度策略保证“工作集不完整就不许运行”；而 attention 在数学上就要求全前缀同时驻留——原理被直接编译进了算法。于是所有策略自由度都落在<b>轮与轮之间</b>：给谁保留、保留多久、新轮次来了排队还是付费重算。这正是下面几节的全部内容。</p>
+  <p>两个先说清的澄清：<b>① miss 不是卡死，是重算</b>——token 文本就是“后备存储”，任何 KV 都能重新算出来，只是贵；<b>② 逐出只能从尾部开始</b>——保留最长连续前缀就能省下等长的重算，但从中间挖洞，洞之后的块全部作废。</p>
 </section>
 
 <section id="ws">
@@ -198,7 +170,7 @@
     <p class="chart-note"><b>每一行 = 一轮到达时的 prefill 账单</b>：行的总长 = 这一轮的 context，行越往下越长；<b>彩色部分（红 + 蓝）= 这一轮实际要算的量</b>。行首括号 = 距上一轮的间隔。</p>
     <div class="chart-wrap" id="soloPlot"></div>
     <div class="tiles">
-      <div class="tile"><div class="tl">平均 HBM 占用</div><div class="tv" id="soloMem">—</div><div class="td">灰色面积 ÷ 总时长（千 token）</div></div>
+      <div class="tile"><div class="tl">平均 HBM 占用</div><div class="tv" id="soloMem">—</div><div class="td">灰色驻留量的时间平均（千 token）</div></div>
       <div class="tile"><div class="tl">总计算量</div><div class="tv" id="soloCost">—</div><div class="td" id="soloWaste"></div></div>
       <div class="tile"><div class="tl">该 session 的 goodput</div><div class="tv" id="soloGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
     </div>
@@ -209,7 +181,7 @@
 <section id="cost">
   <div class="kicker">关键点二</div>
   <h2>3. Miss 有多贵：99% 命中率是不够的</h2>
-  <p>前篇的支点是"缺页服务时间比一次访存慢 4 个数量级"。这里的对应物不是常数，而是一个随 session 变老不断增大的比值：<b>惩罚比 R = context 长度 ÷ 新一轮长度</b>。5 万 token 上下文的 session 发来 500 token 的一轮：命中时只算 500，全 miss 时要算 50500——R = 100 很日常，长文档场景轻松上千。于是单 session 的计算效率（有效计算占比）是：</p>
+  <p>前篇的支点是“缺页服务时间比一次访存慢 4 个数量级”。这里的对应物是<b>惩罚比 R = context 长度 ÷ 新一轮长度</b>：5 万 token 上下文的 session 发来 500 token 的一轮，命中只算 500，全 miss 要算 50500——R = 100 很日常，长文档场景轻松上千。单 session 的计算效率（有效计算占比）是：</p>
   <div class="defbox"><p><em class="v">e</em> = 1 / (1 + (1 − <em class="v">h</em>) × <em class="v">R</em>)　　其中 h 为命中率，R = context / 轮长</p></div>
   <div class="card">
     <p class="chart-title">效率 e 与命中率 h（三条曲线：R = 10 / 100 / 1000）</p>
@@ -217,7 +189,7 @@
     <div class="chart-wrap" id="ehChart"></div>
     <details class="tbl"><summary>查看数据表</summary><div id="ehTable"></div></details>
   </div>
-  <p>读这张图的正确姿势是被它吓到：<b>R = 100 时，h = 99% 只换来 50% 的效率；h = 90% 只剩 9%</b>。前篇里"缺页间隔必须达到 19 倍 T 才有 95% 效率"的论证，转世成了"<b>miss 率必须远小于 1/R</b>"——而且 R 还在随 session 年龄增长。这就是为什么 KV cache 的命中率指标动辄要求 99.x%：不是洁癖，是效率公式的暴政。</p>
+  <p>读这张图的正确姿势是被它吓到：<b>R = 100 时，h = 99% 只换来 50% 的效率；h = 90% 只剩 9%</b>。前篇“缺页间隔必须达到 19 倍 T 才有 95% 效率”的论证，转世成了“<b>miss 率必须远小于 1/R</b>”。KV cache 的命中率指标动辄要求 99.x%，不是洁癖，是效率公式的暴政。</p>
 </section>
 
 <section id="pool">
@@ -236,8 +208,7 @@
       <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="80" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
       <label><input type="checkbox" id="axisDist"> 横轴改为累计分配量（distance）</label>
     </div>
-    <p class="chart-title">LRU 池全景：轮次（点）、驻留（带）、逐出（空缺与削顶）、容量（横线）——都在一张图上</p>
-    <p class="chart-note">点画在自己 session 的带子里：一点 = 一轮到达，<b>蓝 = 前缀全在（免费复用），红 = 沉默期间被挤过（本轮重算）</b>；带子厚度 = 该 session 驻留的块，被削顶 = 正在被逐出；虚线阶梯 = 内存无限时本可缓存的总量，它与堆顶之间的浅红区 = 已被挤出的块。</p>
+    <p class="chart-title">LRU 池全景：轮次（点）、驻留（带）、逐出（空缺与削顶）、容量（横线）</p>
     <div class="chart-wrap" id="stackPlot"></div>
     <p class="chart-note" id="distNote" style="display:none"><b>distance 轴下的几何事实：每条带子在最后一个点之后的尾长都 ≈ M。</b>“一段缓存能活多久”与“容量有多大”，在这个坐标系里是同一个数字。</p>
     <p class="readout">t = <code id="roT"></code>　池中 session <code id="roK"></code>　已用 <code id="roUsed"></code> / 容量 <code id="roM"></code>　已挤出 <code id="roDebt"></code></p>
@@ -250,7 +221,7 @@
   <div class="kicker">关键点三（下）</div>
   <h2>5. 雪崩线：跨过去就是断崖</h2>
   <p>上一节的池子只有 9 个 session；现在把负载推到极限。设 N 个 session 平均 context 为 <em class="v">c̄</em>、每轮新增 δ = 0.5k token。总需求 N·c̄ ≤ M 时人人全命中；一旦超过，LRU 池遭遇缓存理论的经典病理——<b>循环扫描略大于缓存的集合，命中率不是缓降而是阶跃归零</b>（每个 session 每轮全扫自己的前缀，回来时自己的块恰好最旧、刚好被挤光）。前篇的悬崖需要一个教学用的幂指数；这里的悬崖是结构性的，位置就在：</p>
-  <div class="defbox"><p><b>雪崩线：M = N × c̄</b>　——HBM 越大养得起的 session 越多（线的斜率就是 c̄），跨过线即雪崩。</p></div>
+  <div class="defbox"><p><b>雪崩线：M = N × c̄</b>　——HBM 越大养得起的 session 越多（斜率就是 c̄），跨过线即雪崩。</p></div>
   <div class="card">
     <div class="controls">
       <label>session 数 <em class="v">N</em><input type="range" id="nSlider" min="1" max="32" value="8"><output id="nOut">8</output></label>
@@ -260,20 +231,19 @@
     <div class="tiles">
       <div class="tile"><div class="tl">命中率 h</div><div class="tv" id="tileH">—</div><div class="td" id="tileHd"></div></div>
       <div class="tile"><div class="tl">每轮计算放大</div><div class="tv" id="tileA">—</div><div class="td">实际算量 ÷ 有效算量</div></div>
-      <div class="tile"><div class="tl">Goodput</div><div class="tv" id="tileG">—</div><div class="td" id="tileGd"></div></div>
+      <div class="tile"><div class="tl">Goodput</div><div class="tv" id="tileG">—</div><div class="td">GPU 利用率仍是 100%</div></div>
     </div>
-    <p class="chart-title">Goodput 与 session 数 N（当前 M、c̄ 下的切片）</p>
+    <p class="chart-title">Goodput 与 session 数 N（当前 M、c̄ 下）</p>
     <div class="legend"><span><span class="key k1"></span>块级 LRU 超卖（人人互踩）</span><span><span class="key k2"></span>session 级准入（驻留者受保护，超额者自付）</span></div>
     <div class="chart-wrap" id="cliffChart"></div>
-    <p class="chart-note">两条线在跨线后都会下坠（超额 session 的重算是真实工作量，谁也变不走），但读法完全不同：LRU 下<b>所有</b> session 一起沉没；准入控制下驻留的 K 个 session 各自仍是 100% 效率，损失被隔离在超额者身上——M=400、c̄=50 时，N=9 的总 goodput 是 8.3% vs LRU 的 1%，差 8 倍，且随 N 增大持续领先（见数据表）。</p>
     <details class="tbl"><summary>模型公式与推导</summary>
       <p>块级 LRU：session 回来时，缓存里是比它更新的 N−1 个 session 的 context，留给它的空间是 M − (N−1)·c̄。命中率 h = clamp((M − (N−1)·c̄) / c̄, 0, 1)——在宽度仅 c̄ 的过渡带内从 1 跌到 0。每轮实际算量 = δ + (1−h)·c̄，<b>goodput = δ / (δ + (1−h)·c̄)</b>。</p>
       <p>session 级准入：K = ⌊M / c̄⌋ 个 session 驻留、全命中；其余 N−K 个不驻留，每轮自付全量重算，但不侵占驻留者的空间。goodput = N·δ / (K·δ + (N−K)·(δ + c̄))。</p>
-      <p>注意与前篇的不同：OS 里被挂起的进程不消耗 CPU，绿线是平的；这里超额 session 开口说话就得算，绿线也会下垂——准入控制不能消灭工作量，它消灭的是<b>互相踩踏</b>：驻留的 K 个 session 效率恒为 100%，损失被隔离在超额者自己身上。若在门口直接排队/限流（不处理超额轮次），goodput 可保持 ~100%，代价是排队延迟——那才是前篇"整体挂起"的严格对应物。</p>
+      <p>与前篇的不同：OS 里被挂起的进程不消耗 CPU，绿线是平的；这里超额 session 开口说话就得算，绿线也会下垂——准入控制消灭不了工作量，它消灭的是<b>互相踩踏</b>：驻留的 K 个 session 效率恒为 100%，损失被隔离在超额者身上。若在门口直接排队/限流，goodput 可保持 ~100%，代价是排队延迟——那才是前篇“整体挂起”的严格对应物。</p>
     </details>
     <details class="tbl"><summary>查看数据表（当前 M、c̄ 切片）</summary><div id="cliffTable"></div></details>
   </div>
-  <p>比前篇更险恶的一点：雪崩发生时 <b>GPU 利用率是 100%</b>。OS 抖动的体征是 CPU 空转、磁盘狂响，一眼可诊断；KV 雪崩时监控面板一片健康——GPU 在满负荷地重算历史。必须换指标才能看见它：goodput、cache 命中率、TTFT，缺一不可。</p>
+  <p>比前篇更险恶的一点：雪崩发生时 <b>GPU 利用率是 100%</b>——它在满负荷地重算历史。OS 抖动的体征是 CPU 空转，一眼可诊断；KV 雪崩在利用率面板上一片健康，必须盯 goodput、命中率、TTFT 才看得见。</p>
   <div class="warnbox">
     <p><b>而且雪崩会自我放大，不需要任何人犯错：</b>每轮变慢 → 在途请求堆积（Little 定律）→ 池子更挤；TTFT 超时 → 客户端重试 → 同一个长 prefill 提交两遍。1968 年那个火上浇油的调度器，今天叫超时重试。</p>
   </div>
@@ -292,15 +262,15 @@
 
 <footer>
   <p>前篇：<a href="index.html">工作集与抖动 — 看懂 Peter Denning 的 1968</a></p>
-  <p>参考：Denning, “The Working Set Model for Program Behavior”, CACM 1968 · Denning, “Thrashing: Its Causes and Prevention”, AFIPS FJCC 1968 · Denning, “Working Sets Past and Present”, IEEE TSE 1980 · Kwon et al., “Efficient Memory Management for LLM Serving with PagedAttention”（vLLM）, SOSP 2023 · Zheng et al., “SGLang: Efficient Execution of Structured Language Model Programs”（RadixAttention）, 2024 · Qin et al., “Mooncake: A KVCache-centric Disaggregated Architecture for LLM Serving”, 2024。</p>
-  <p>页面中的轨迹与模型为教学用途的简化模拟；所有公式与参数标注于正文，图表均附数据表或推导。</p>
+  <p>参考：Denning, “The Working Set Model for Program Behavior”, CACM 1968 · Denning, “Thrashing: Its Causes and Prevention”, AFIPS FJCC 1968 · Kwon et al., “Efficient Memory Management for LLM Serving with PagedAttention”（vLLM）, SOSP 2023 · Zheng et al., “SGLang”（RadixAttention）, 2024 · Gao et al., “CachedAttention”, USENIX ATC 2024 · Qin et al., “Mooncake”, 2024。</p>
+  <p>页面中的轨迹与模型为教学用途的简化模拟；公式与参数标注于正文，图表附数据表或推导。</p>
 </footer>
 
 </main>
 
 <script>
 "use strict";
-/* ---------- 工具（与前篇一致） ---------- */
+/* ================= 工具 ================= */
 const SVGNS = "http://www.w3.org/2000/svg";
 function svgEl(name, attrs, parent) {
   const e = document.createElementNS(SVGNS, name);
@@ -314,9 +284,9 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 function lineChart(root, cfg) {
   const W = cfg.w || 860, H = cfg.h || 260;
   const ml = cfg.ml || 46, mr = cfg.mr || 16, mt = cfg.mt || 22, mb = cfg.mb || 40;
-  const pw = W - ml - mr, phh = H - mt - mb;
+  const pw = W - ml - mr, ph = H - mt - mb;
   const X = v => ml + (v - cfg.xMin) / (cfg.xMax - cfg.xMin) * pw;
-  const Y = v => mt + phh - (v - cfg.yMin) / (cfg.yMax - cfg.yMin) * phh;
+  const Y = v => mt + ph - (v - cfg.yMin) / (cfg.yMax - cfg.yMin) * ph;
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": cfg.ariaLabel || "" }, null);
   root.appendChild(svg);
   for (const yt of cfg.yTicks) {
@@ -325,22 +295,18 @@ function lineChart(root, cfg) {
   }
   svgEl("line", { x1: ml, x2: ml + pw, y1: Y(cfg.yMin), y2: Y(cfg.yMin), class: "axisline" }, svg);
   for (const xt of cfg.xTicks)
-    svgEl("text", { x: X(xt), y: mt + phh + 18, "text-anchor": "middle", class: "ticktext" }, svg).textContent = (cfg.xFmt || String)(xt);
+    svgEl("text", { x: X(xt), y: mt + ph + 18, "text-anchor": "middle", class: "ticktext" }, svg).textContent = (cfg.xFmt || String)(xt);
   if (cfg.xLabel) svgEl("text", { x: ml + pw / 2, y: H - 4, "text-anchor": "middle", class: "axtext" }, svg).textContent = cfg.xLabel;
   if (cfg.yLabel) svgEl("text", { x: ml - 40, y: 12, class: "axtext" }, svg).textContent = cfg.yLabel;
-  if (cfg.vlines) for (const vx of cfg.vlines)
-    svgEl("line", { x1: X(vx), x2: X(vx), y1: mt, y2: mt + phh, class: "gridline", "stroke-dasharray": "3 3" }, svg);
   const paths = cfg.series.map(s => svgEl("path", { class: s.cls + "-line", d: "" }, svg));
-  const cross = svgEl("line", { class: "crosshair", y1: mt, y2: mt + phh, visibility: "hidden" }, svg);
+  const cross = svgEl("line", { class: "crosshair", y1: mt, y2: mt + ph, visibility: "hidden" }, svg);
   const markers = cfg.series.map(s => svgEl("circle", { r: 4.5, class: s.cls + "-dot", visibility: "hidden" }, svg));
   const tt = document.createElement("div");
   tt.className = "tt"; root.appendChild(tt);
   const chart = {
     X, Y, svg,
     data: cfg.series.map(s => s.points || []),
-    visible: cfg.series.map(s => s.visible !== false),
-    setData(i, pts) { this.data[i] = pts; this.redraw(i); },
-    setVisible(i, v) { this.visible[i] = v; paths[i].style.display = v ? "" : "none"; this.updateMarker(); },
+    setData(i, pts) { this.data[i] = pts; this.redraw(i); this.updateMarker(); },
     redraw(i) {
       const pts = this.data[i];
       paths[i].setAttribute("d", pts.length ? "M" + pts.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("L") : "");
@@ -349,8 +315,7 @@ function lineChart(root, cfg) {
     updateMarker() {
       cfg.series.forEach((s, i) => {
         const m = markers[i];
-        if (this.markerX == null || !this.visible[i]) { m.setAttribute("visibility", "hidden"); return; }
-        const p = this.data[i].find(p => p[0] === this.markerX);
+        const p = this.markerX == null ? null : this.data[i].find(p => p[0] === this.markerX);
         if (!p) { m.setAttribute("visibility", "hidden"); return; }
         m.setAttribute("cx", X(p[0])); m.setAttribute("cy", Y(p[1]));
         m.setAttribute("visibility", "visible");
@@ -358,7 +323,7 @@ function lineChart(root, cfg) {
     },
     setMarker(xv) { this.markerX = xv; this.updateMarker(); },
   };
-  cfg.series.forEach((s, i) => { chart.redraw(i); chart.setVisible(i, chart.visible[i]); });
+  cfg.series.forEach((s, i) => chart.redraw(i));
   svg.addEventListener("mousemove", ev => {
     const r = svg.getBoundingClientRect();
     const mx = (ev.clientX - r.left) / r.width * W;
@@ -368,7 +333,6 @@ function lineChart(root, cfg) {
     cross.setAttribute("visibility", "visible");
     const rows = [];
     cfg.series.forEach((s, i) => {
-      if (!chart.visible[i]) return;
       const p = chart.data[i].find(p => p[0] === xv);
       if (p) rows.push(`<span class="key ${s.cls === "s1" ? "k1" : s.cls === "s2" ? "k2" : "k3"}"></span>${s.name}：<b>${(cfg.yFmt || String)(p[1])}</b>`);
     });
@@ -383,11 +347,91 @@ function lineChart(root, cfg) {
   return chart;
 }
 
-/* ---------- 数据：session 轨迹 ---------- */
+/* ================= 第 2 节：一轮一行的账单（静态示例） ================= */
+/* [到达秒, 新增千 token]；长停顿：41→75（34s）、104→140（36s）、171→190（19s） */
+const SOLO_TURNS = [[5,4],[14,3],[24,4],[33,3],[41,4],[75,5],[84,3],[95,4],[104,3],[140,5],[150,3],[159,4],[171,3],[190,4]];
+const SOLO_TTL = 15;    /* 示例场景：沉默超过 15s 缓存已被池子挤掉 */
+const SOLO_N = SOLO_TURNS.length;
+const SOLO_CUMS = (() => { const a = []; let c = 0; for (const [, d] of SOLO_TURNS) { c += d; a.push(c); } return a; })();
+{
+  const W = 860, H = 356, ml = 118, mr = 16, mt = 14, mb = 40, xmax = 55;
+  const X = v => ml + v / xmax * (W - ml - mr);
+  const rowH = (H - mt - mb) / SOLO_N;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": "一轮一行的 prefill 账单" }, null);
+  document.getElementById("soloPlot").appendChild(svg);
+  [0, 10, 20, 30, 40, 50].forEach(v => {
+    svgEl("line", { x1: X(v), x2: X(v), y1: mt, y2: H - mb, class: "gridline" }, svg);
+    svgEl("text", { x: X(v), y: H - mb + 16, "text-anchor": "middle", class: "ticktext" }, svg).textContent = v;
+  });
+  svgEl("line", { x1: X(0), x2: X(0), y1: mt, y2: H - mb, class: "axisline" }, svg);
+  svgEl("text", { x: ml + (W - ml - mr) / 2, y: H - 2, "text-anchor": "middle", class: "axtext" }, svg)
+    .textContent = "这一轮 prefill 的 context（千 token）——左端是最早的历史，右端是本轮新增";
+  const barH = Math.max(8, rowH - 6);
+  let totalCost = 0, totalNew = 0, waste = 0;
+  SOLO_TURNS.forEach(([u, d], k) => {
+    const gap = k ? u - SOLO_TURNS[k - 1][0] : null;
+    svgEl("text", { x: ml - 10, y: mt + k * rowH + rowH / 2 + 3.5, "text-anchor": "end", class: "ticktext" }, svg)
+      .textContent = `轮 ${k + 1}` + (gap !== null ? `（+${gap}s）` : `（t=${u}s）`);
+    const prev = k ? SOLO_CUMS[k - 1] : 0;
+    const miss = gap !== null && gap > SOLO_TTL;
+    const recomp = miss ? prev : 0;
+    totalCost += d + recomp; totalNew += d; waste += recomp;
+    const y = mt + k * rowH + (rowH - barH) / 2;
+    if (prev > 0) {
+      const pr = svgEl("rect", { x: X(0), width: X(prev) - X(0), y, height: barH, class: miss ? "seg-re" : "seg-hit" }, svg);
+      svgEl("title", {}, pr).textContent = miss
+        ? `轮 ${k + 1}：沉默 ${gap}s，前缀 ${prev}k 已被池子挤出 → 本轮全部重算`
+        : `轮 ${k + 1}：间隔 ${gap}s，前缀 ${prev}k 还在 HBM → 免费复用`;
+    }
+    const nw = svgEl("rect", { x: X(prev), width: X(SOLO_CUMS[k]) - X(prev), y, height: barH, class: "seg-new" }, svg);
+    svgEl("title", {}, nw).textContent = `轮 ${k + 1}：本轮新增 ${d}k（无论如何都要算）`;
+  });
+  const anno = (k, label) =>
+    svgEl("text", { x: X(SOLO_CUMS[k]) + 8, y: mt + k * rowH + rowH / 2 + 3.5, class: "anno strong" }, svg).textContent = label;
+  anno(2, "← 间隔 10s：缓存还在，只算蓝色");
+  anno(5, "← 沉默 34s：缓存已被挤掉，整行重算");
+  /* 平均驻留：沉默超过 TTL 后按已被挤出计 */
+  let area = 0;
+  for (let t = 0; t <= 200; t++) {
+    let last = -1, ctx = 0;
+    for (const [u, d] of SOLO_TURNS) { if (u <= t) { last = u; ctx += d; } }
+    if (last >= 0 && t - last < SOLO_TTL) area += ctx;
+  }
+  document.getElementById("soloMem").textContent = (area / 201).toFixed(1);
+  document.getElementById("soloCost").textContent = totalCost + "k";
+  document.getElementById("soloWaste").textContent = `其中重算浪费 ${waste}k（新 token 共 ${totalNew}k）`;
+  document.getElementById("soloGp").textContent = Math.round(totalNew / totalCost * 100) + "%";
+}
+
+/* ================= 第 3 节：效率 e 与命中率 h ================= */
+const RS = [{ r: 10, cls: "s1" }, { r: 100, cls: "s2" }, { r: 1000, cls: "s3" }];
+lineChart(document.getElementById("ehChart"), {
+  h: 270, mr: 30, xMin: 80, xMax: 100, yMin: 0, yMax: 1,
+  xTicks: [80, 85, 90, 95, 100], yTicks: [0, 0.25, 0.5, 0.75, 1],
+  xLabel: "命中率 h（%）", yLabel: "效率 e",
+  xName: "h", snap: v => clamp(Math.round(v * 2) / 2, 80, 100),
+  xFmt: v => v + "%", yFmt: v => Math.round(v * 100) + "%",
+  series: RS.map(({ r, cls }) => ({
+    name: `R = ${r}`, cls,
+    points: Array.from({ length: 41 }, (_, i) => {
+      const h = 80 + i * 0.5;
+      return [h, 1 / (1 + (1 - h / 100) * r)];
+    }),
+  })),
+  ariaLabel: "效率随命中率变化的折线图（三种惩罚比）",
+});
+document.getElementById("ehTable").innerHTML =
+  "<table><tr><th>h</th><th>R=10</th><th>R=100</th><th>R=1000</th></tr>" +
+  [80, 85, 90, 95, 98, 99, 99.5, 100].map(h =>
+    `<tr><td>${h}%</td>` + RS.map(({ r }) =>
+      `<td>${(100 / (1 + (1 - h / 100) * r)).toFixed(1)}%</td>`).join("") + "</tr>").join("") +
+  "</table>";
+
+/* ================= 第 4 节：LRU 池全景 ================= */
 /* turns: [时刻(秒), 本轮新增 token 数(千)] */
 const SESSIONS = [
   { name: "会话 1", turns: [[5,8],[15,6],[24,5],[40,7],[52,6],[70,5],[85,6],[100,5],[118,6],[135,5],[152,6],[170,5],[186,5]] },
-  { name: "会话 2", turns: [[2,10],[12,8],[22,6],[34,7],[46,8]], died: true },
+  { name: "会话 2", turns: [[2,10],[12,8],[22,6],[34,7],[46,8]] },
   { name: "会话 3", turns: [[18,4],[26,5],[34,4],[95,6],[104,5],[112,4],[121,5]] },
   { name: "会话 4", turns: [[40,25],[62,20],[90,18],[130,15],[165,12]] },
   { name: "会话 5", turns: [[55,5],[63,4],[71,5],[79,4],[88,5],[96,4],[105,5]] },
@@ -396,89 +440,8 @@ const SESSIONS = [
   { name: "会话 8", turns: [[125,8],[136,7],[146,8],[158,7],[176,8],[190,7]] },
   { name: "会话 9", turns: [[3,6],[11,5],[19,6],[27,5]] },
 ];
-const TMAX = 200, NS = SESSIONS.length, YMAX_KV = 460;
-
-function ctxAt(s, t) {            // t 时刻的 context（千 token）
-  let c = 0;
-  for (const [u, d] of s.turns) { if (u <= t) c += d; else break; }
-  return c;
-}
-function lastTurnAt(s, t) {
-  let last = -Infinity;
-  for (const [u] of s.turns) { if (u <= t) last = u; else break; }
-  return last;
-}
-function residentAt(s, t, tau) {  // 窗口 (t-τ, t] 内有轮次
-  const last = lastTurnAt(s, t);
-  return last > -Infinity && t - last < tau;
-}
-
-/* ---------- 可视化 2.1：一轮一行的 prefill 账单 ---------- */
-const SOLO_TURNS = [[5,4],[14,3],[24,4],[33,3],[41,4],[75,5],[84,3],[95,4],[104,3],[140,5],[150,3],[159,4],[171,3],[190,4]];
-const SOLO = { turns: SOLO_TURNS };
-const SOLO_N = SOLO_TURNS.length;
-const SOLO_CUMS = (() => { const a = []; let c = 0; for (const [, d] of SOLO_TURNS) { c += d; a.push(c); } return a; })();
-const SO = { W: 860, H: 356, ml: 118, mr: 16, mt: 14, mb: 40, xmax: 55 };
-const soX = v => SO.ml + v / SO.xmax * (SO.W - SO.ml - SO.mr);
-const soRowH = (SO.H - SO.mt - SO.mb) / SOLO_N;
-const soRowTop = k => SO.mt + k * soRowH;
-const soSvg = svgEl("svg", { viewBox: `0 0 ${SO.W} ${SO.H}`, class: "chart", role: "img",
-                             "aria-label": "一轮一行的 prefill 账单" }, null);
-document.getElementById("soloPlot").appendChild(soSvg);
-[0, 10, 20, 30, 40, 50].forEach(v => {
-  svgEl("line", { x1: soX(v), x2: soX(v), y1: SO.mt, y2: SO.H - SO.mb, class: "gridline" }, soSvg);
-  svgEl("text", { x: soX(v), y: SO.H - SO.mb + 16, "text-anchor": "middle", class: "ticktext" }, soSvg).textContent = v;
-});
-SOLO_TURNS.forEach(([u], k) => {
-  const gap = k ? u - SOLO_TURNS[k - 1][0] : null;
-  svgEl("text", { x: SO.ml - 10, y: soRowTop(k) + soRowH / 2 + 3.5, "text-anchor": "end", class: "ticktext" }, soSvg)
-    .textContent = `轮 ${k + 1}` + (gap !== null ? `（+${gap}s）` : `（t=${u}s）`);
-});
-const soloRowGroup = svgEl("g", {}, soSvg);
-const soloAnnoGroup = svgEl("g", {}, soSvg);
-svgEl("line", { x1: soX(0), x2: soX(0), y1: SO.mt, y2: SO.H - SO.mb, class: "axisline" }, soSvg);
-svgEl("text", { x: SO.ml + (SO.W - SO.ml - SO.mr) / 2, y: SO.H - 2, "text-anchor": "middle", class: "axtext" }, soSvg)
-  .textContent = "这一轮 prefill 的 context（千 token）——左端是最早的历史，右端是本轮新增";
-
-function redrawSolo(tau) {
-  soloRowGroup.innerHTML = ""; soloAnnoGroup.innerHTML = "";
-  const barH = Math.max(8, soRowH - 6);
-  let totalCost = 0, totalNew = 0, waste = 0;
-  SOLO_TURNS.forEach(([u, d], k) => {
-    const prev = k ? SOLO_CUMS[k - 1] : 0;
-    const gap = k ? u - SOLO_TURNS[k - 1][0] : Infinity;
-    const miss = gap > tau;
-    const recomp = miss ? prev : 0;
-    totalCost += d + recomp; totalNew += d; waste += recomp;
-    const y = soRowTop(k) + (soRowH - barH) / 2;
-    if (prev > 0) {
-      const pr = svgEl("rect", { x: soX(0), width: soX(prev) - soX(0), y, height: barH,
-                                 class: miss ? "seg-re" : "seg-hit" }, soloRowGroup);
-      svgEl("title", {}, pr).textContent = miss
-        ? `轮 ${k + 1}：沉默 ${gap}s，前缀 ${prev}k 已被池子挤出 → 本轮全部重算`
-        : `轮 ${k + 1}：间隔 ${gap}s，前缀 ${prev}k 还在 HBM → 免费复用`;
-    }
-    const nw = svgEl("rect", { x: soX(prev), width: soX(SOLO_CUMS[k]) - soX(prev), y, height: barH,
-                               class: "seg-new" }, soloRowGroup);
-    svgEl("title", {}, nw).textContent = `轮 ${k + 1}：本轮新增 ${d}k（无论如何都要算）`;
-  });
-  const anno = (k, label) =>
-    svgEl("text", { x: soX(SOLO_CUMS[k]) + 8, y: soRowTop(k) + soRowH / 2 + 3.5, class: "anno strong" }, soloAnnoGroup)
-      .textContent = label;
-  anno(2, "← 间隔 10s：缓存还在，只算蓝色");
-  anno(5, "← 沉默 34s：缓存已被挤掉，整行重算");
-  const pts = [];
-  for (let t = 0; t <= TMAX; t++) pts.push(residentAt(SOLO, t, tau) ? ctxAt(SOLO, t) : 0);
-  const avgMem = pts.reduce((a, b) => a + b, 0) / (TMAX + 1);
-  document.getElementById("soloMem").textContent = avgMem.toFixed(1);
-  document.getElementById("soloCost").textContent = totalCost + "k";
-  document.getElementById("soloWaste").textContent = `其中重算浪费 ${waste}k（新 token 共 ${totalNew}k）`;
-  document.getElementById("soloGp").textContent = Math.round(totalNew / totalCost * 100) + "%";
-}
-redrawSolo(15);
-
-/* ---------- 累计分配量（distance 轴用），与 M 无关 ---------- */
-const DEMAND_T = (() => {
+const TMAX = 200, YMAX_KV = 460;
+const DEMAND_T = (() => {          /* 累计分配量（distance 轴），与 M 无关 */
   const evs = [];
   SESSIONS.forEach(s => s.turns.forEach(([u, d]) => evs.push([u, d])));
   evs.sort((a, b) => a[0] - b[0]);
@@ -492,11 +455,49 @@ const DEMAND_T = (() => {
 const DMAX_T = DEMAND_T[TMAX];
 let distMode = false;
 
-/* ---------- 可视化 A2：HBM 堆叠 ---------- */
+function simulatePool(M) {
+  /* 事件驱动 LRU：只在需要空间时，从最久没说话的 session 尾部逐出 */
+  const events = [];
+  SESSIONS.forEach((s, i) => s.turns.forEach(([u, d], k) => events.push({ u, i, k, d })));
+  events.sort((a, b) => a.u - b.u);
+  const resident = SESSIONS.map(() => 0);
+  const ctxNow = SESSIONS.map(() => 0);
+  const lastTurn = SESSIONS.map(() => -1);
+  const recompPerTurn = SESSIONS.map(s => s.turns.map(() => 0));
+  const snaps = [], demandArr = [], usedArr = [];
+  let ei = 0, demand = 0;
+  for (let t = 0; t <= TMAX; t++) {
+    while (ei < events.length && events[ei].u <= t) {
+      const { i, k, d } = events[ei];
+      const cNew = ctxNow[i] + d;
+      demand += d;
+      recompPerTurn[i][k] = Math.max(0, ctxNow[i] - resident[i]);
+      let free = M - resident.reduce((a, b) => a + b, 0);
+      const need = Math.min(cNew, M) - resident[i];
+      if (need > free) {
+        const order = SESSIONS.map((_, j) => j).filter(j => j !== i && resident[j] > 0)
+          .sort((a, b) => lastTurn[a] - lastTurn[b]);
+        for (const j of order) {
+          if (need <= free) break;
+          const take = Math.min(resident[j], need - free);
+          resident[j] -= take; free += take;
+        }
+      }
+      resident[i] = Math.min(cNew, M);
+      ctxNow[i] = cNew; lastTurn[i] = events[ei].u;
+      ei++;
+    }
+    snaps.push(resident.slice());
+    demandArr.push(demand);
+    usedArr.push(resident.reduce((a, b) => a + b, 0));
+  }
+  return { snaps, demandArr, usedArr, recompPerTurn };
+}
+
 const A2 = { W: 860, H: 300, ml: 66, mr: 16, mt: 20, mb: 36 };
 const a2X = t => A2.ml + (distMode ? DEMAND_T[t] / DMAX_T : t / TMAX) * (A2.W - A2.ml - A2.mr);
 const a2Y = v => A2.mt + (A2.H - A2.mt - A2.mb) * (1 - v / YMAX_KV);
-const a2Svg = svgEl("svg", { viewBox: `0 0 ${A2.W} ${A2.H}`, class: "chart", role: "img", "aria-label": "HBM 占用堆叠图" }, null);
+const a2Svg = svgEl("svg", { viewBox: `0 0 ${A2.W} ${A2.H}`, class: "chart", role: "img", "aria-label": "LRU 池全景图" }, null);
 document.getElementById("stackPlot").appendChild(a2Svg);
 [0, 100, 200, 300, 400].forEach(v => {
   svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(v), y2: a2Y(v), class: "gridline" }, a2Svg);
@@ -514,64 +515,18 @@ const dotGroup = svgEl("g", {}, a2Svg);
 const poolAnnoGroup = svgEl("g", {}, a2Svg);
 svgEl("text", { x: A2.ml - 40, y: 12, class: "axtext" }, a2Svg).textContent = "千 token";
 
-function simulatePool(M) {
-  /* 事件驱动的 LRU 池：块只在需要空间时被逐出，从最久没说话的 session 的尾部开始 */
-  const events = [];
-  SESSIONS.forEach((s, i) => s.turns.forEach(([u, d], k) => events.push({ u, i, k, d })));
-  events.sort((a, b) => a.u - b.u);
-  const resident = SESSIONS.map(() => 0);   // 各 session 当前驻留的块（千 token）
-  const ctxNow = SESSIONS.map(() => 0);
-  const lastTurn = SESSIONS.map(() => -1);
-  const recompPerTurn = SESSIONS.map(s => s.turns.map(() => 0));
-  const snaps = [], demandArr = [], usedArr = [], teffArr = [];
-  let ei = 0, demand = 0;
-  for (let t = 0; t <= TMAX; t++) {
-    while (ei < events.length && events[ei].u <= t) {
-      const { i, k, d } = events[ei];
-      const cNew = ctxNow[i] + d;
-      demand += d;
-      recompPerTurn[i][k] = Math.max(0, ctxNow[i] - resident[i]);  // 缺失的历史 → 重算量
-      let free = M - resident.reduce((a, b) => a + b, 0);
-      const need = Math.min(cNew, M) - resident[i];
-      if (need > free) {
-        const order = SESSIONS.map((_, j) => j).filter(j => j !== i && resident[j] > 0)
-          .sort((a, b) => lastTurn[a] - lastTurn[b]);          // 最久没说话的先被吃
-        for (const j of order) {
-          if (need <= free) break;
-          const take = Math.min(resident[j], need - free);      // 尾部截断
-          resident[j] -= take; free += take;
-        }
-      }
-      resident[i] = Math.min(cNew, M);
-      ctxNow[i] = cNew; lastTurn[i] = events[ei].u;
-      ei++;
-    }
-    snaps.push(resident.slice());
-    demandArr.push(demand);
-    usedArr.push(resident.reduce((a, b) => a + b, 0));
-    let teff = null, pressured = false;
-    SESSIONS.forEach((s, j) => {
-      if (lastTurn[j] < 0) return;
-      if (resident[j] >= ctxNow[j] && ctxNow[j] > 0) teff = Math.max(teff ?? 0, t - lastTurn[j]);
-      if (resident[j] < ctxNow[j]) pressured = true;
-    });
-    teffArr.push({ teff, pressured });
-  }
-  return { snaps, demandArr, usedArr, teffArr, recompPerTurn };
-}
 function pathFromRun(arr, t0, t1, xf, yf) {
-  /* arr[t] = [bottom, top]；生成 t0..t1 的阶梯多边形 */
   let d = `M${xf(t0)},${yf(arr[t0][1])}`;
   for (let t = t0 + 1; t <= t1; t++) d += `L${xf(t)},${yf(arr[t - 1][1])}L${xf(t)},${yf(arr[t][1])}`;
   d += `L${xf(t1)},${yf(arr[t1][0])}`;
   for (let t = t1 - 1; t >= t0; t--) d += `L${xf(t + 1)},${yf(arr[t][0])}L${xf(t)},${yf(arr[t][0])}`;
   return d + "Z";
 }
+
 let poolCache = null;
 function redrawPool(M) {
   poolCache = simulatePool(M);
   bandGroup.innerHTML = ""; overGroup.innerHTML = "";
-  /* 堆叠层 */
   const layers = SESSIONS.map(() => new Array(TMAX + 1).fill(null));
   for (let t = 0; t <= TMAX; t++) {
     let base = 0;
@@ -596,7 +551,7 @@ function redrawPool(M) {
       }
     }
   });
-  /* 已被挤出的楔子：无限内存需求 与 实际驻留 之间 */
+  /* 已被挤出的楔子 + 无限内存需求虚线 */
   const dem = poolCache.demandArr.map(v => Math.min(v, YMAX_KV)), used = poolCache.usedArr;
   let t0 = null;
   for (let t = 0; t <= TMAX + 1; t++) {
@@ -611,7 +566,6 @@ function redrawPool(M) {
       t0 = null;
     }
   }
-  /* 无限内存需求：虚线阶梯 */
   let d = `M${a2X(0)},${a2Y(dem[0])}`;
   for (let t = 1; t <= TMAX; t++) d += `L${a2X(t)},${a2Y(dem[t - 1])}L${a2X(t)},${a2Y(dem[t])}`;
   svgEl("path", { d, class: "demand-line" }, overGroup);
@@ -635,7 +589,7 @@ function redrawPool(M) {
   }
   /* 轮次点：画在各自 session 的带子中心 */
   dotGroup.innerHTML = ""; poolAnnoGroup.innerHTML = "";
-  SESSIONS.forEach((sn, i) => sn.turns.forEach(([u, d], k) => {
+  SESSIONS.forEach((sn, i) => sn.turns.forEach(([u, dlt], k) => {
     const seg = layers[i][u];
     if (!seg) return;
     const cy = (a2Y(seg[0]) + a2Y(seg[1])) / 2;
@@ -643,10 +597,9 @@ function redrawPool(M) {
     const dot = svgEl("circle", { cx: a2X(u), cy, r: 3.5, class: miss ? "ref-dot miss" : "ref-dot hit",
                                   stroke: "var(--surface-1)", "stroke-width": 1.5 }, dotGroup);
     svgEl("title", {}, dot).textContent = miss
-      ? `${sn.name} 第 ${k + 1} 轮（t=${u}s）：被挤过，重算 ${Math.round(poolCache.recompPerTurn[i][k])}k + 新增 ${d}k`
-      : `${sn.name} 第 ${k + 1} 轮（t=${u}s）：命中，只算新增 ${d}k`;
+      ? `${sn.name} 第 ${k + 1} 轮（t=${u}s）：被挤过，重算 ${Math.round(poolCache.recompPerTurn[i][k])}k + 新增 ${dlt}k`
+      : `${sn.name} 第 ${k + 1} 轮（t=${u}s）：命中，只算新增 ${dlt}k`;
   }));
-  /* 两个固定剧情的注释 */
   const annoAt = (i, u, text) => {
     const seg = layers[i][u];
     if (!seg) return;
@@ -657,17 +610,15 @@ function redrawPool(M) {
   annoAt(2, 95, "← 会话 3 停顿 61s 后回来");
 }
 
-/* ---------- 可视化 A 的状态 ---------- */
 const tSlider = document.getElementById("tSlider"), mSlider = document.getElementById("mSlider");
 const tOut = document.getElementById("tOut"), mOut = document.getElementById("mOut");
 let curT = +tSlider.value, curM = +mSlider.value;
 
-function updateVizA(structChanged) {
+function updatePool(structChanged) {
   if (structChanged) redrawPool(curM);
   tOut.textContent = curT; mOut.textContent = curM;
   a2Now.setAttribute("x1", a2X(curT)); a2Now.setAttribute("x2", a2X(curT));
   const snap = poolCache.snaps[curT];
-  /* 当前时刻的剖面卡尺：各 session 此刻实际驻留的厚度 */
   nowGroup.innerHTML = "";
   SESSIONS.forEach((s, i) => {
     const seg = poolCache.layers[i][curT];
@@ -681,12 +632,12 @@ function updateVizA(structChanged) {
   document.getElementById("roM").textContent = curM + "k";
   document.getElementById("roDebt").textContent = Math.max(0, Math.round(dem - used)) + "k";
 }
-tSlider.addEventListener("input", () => { curT = +tSlider.value; stopPlay(); updateVizA(false); });
-mSlider.addEventListener("input", () => { curM = +mSlider.value; updateVizA(true); });
+tSlider.addEventListener("input", () => { curT = +tSlider.value; stopPlay(); updatePool(false); });
+mSlider.addEventListener("input", () => { curM = +mSlider.value; updatePool(true); });
 document.getElementById("axisDist").addEventListener("change", ev => {
   distMode = ev.target.checked;
   document.getElementById("distNote").style.display = distMode ? "" : "none";
-  updateVizA(true);
+  updatePool(true);
 });
 const playBtn = document.getElementById("playBtn");
 let timer = null;
@@ -694,36 +645,11 @@ function stopPlay() { if (timer) { clearInterval(timer); timer = null; playBtn.t
 playBtn.addEventListener("click", () => {
   if (timer) { stopPlay(); return; }
   playBtn.textContent = "⏸ 暂停";
-  timer = setInterval(() => { curT = curT >= TMAX ? 0 : curT + 1; tSlider.value = curT; updateVizA(false); }, 100);
+  timer = setInterval(() => { curT = curT >= TMAX ? 0 : curT + 1; tSlider.value = curT; updatePool(false); }, 100);
 });
 
-/* ---------- 可视化 C：e–h 曲线族 ---------- */
-const RS = [{ r: 10, cls: "s1" }, { r: 100, cls: "s2" }, { r: 1000, cls: "s3" }];
-const ehChart = lineChart(document.getElementById("ehChart"), {
-  h: 270, mr: 30, xMin: 80, xMax: 100, yMin: 0, yMax: 1,
-  xTicks: [80, 85, 90, 95, 100], yTicks: [0, 0.25, 0.5, 0.75, 1],
-  xLabel: "命中率 h（%）", yLabel: "效率 e",
-  xName: "h", snap: v => clamp(Math.round(v * 2) / 2, 80, 100),
-  xFmt: v => v + "%", yFmt: v => Math.round(v * 100) + "%",
-  series: RS.map(({ r, cls }) => ({
-    name: `R = ${r}`, cls,
-    points: Array.from({ length: 41 }, (_, i) => {
-      const h = 80 + i * 0.5;
-      return [h, 1 / (1 + (1 - h / 100) * r)];
-    }),
-  })),
-  ariaLabel: "效率随命中率变化的折线图（三种惩罚比）",
-});
-document.getElementById("ehTable").innerHTML =
-  "<table><tr><th>h</th><th>R=10</th><th>R=100</th><th>R=1000</th></tr>" +
-  [80, 85, 90, 95, 98, 99, 99.5, 100].map(h =>
-    `<tr><td>${h}%</td>` + RS.map(({ r }) =>
-      `<td>${(100 / (1 + (1 - h / 100) * r)).toFixed(1)}%</td>`).join("") + "</tr>").join("") +
-  "</table>";
-
-/* ---------- 可视化 D：相图 + 悬崖 ---------- */
-const DELTA = 0.5;                 // 每轮新增（千 token）
-const NMAXP = 32, MSTEP = 50, MMAX = 1600;
+/* ================= 第 5 节：雪崩线 ================= */
+const DELTA = 0.5, NMAXP = 32;
 function hitRate(N, M, cbar) { return clamp((M - (N - 1) * cbar) / cbar, 0, 1); }
 function goodLRU(N, M, cbar) { const h = hitRate(N, M, cbar); return DELTA / (DELTA + (1 - h) * cbar); }
 function goodAdm(N, M, cbar) {
@@ -743,10 +669,9 @@ const cliffChart = lineChart(document.getElementById("cliffChart"), {
   ],
   ariaLabel: "goodput 随并发数变化的折线图",
 });
-
 const nSlider = document.getElementById("nSlider"), capSlider = document.getElementById("capSlider"), cbarSlider = document.getElementById("cbarSlider");
 const nOut = document.getElementById("nOut"), capOut = document.getElementById("capOut"), cbarOut = document.getElementById("cbarOut");
-function updateVizD(structChanged) {
+function updateCliff(structChanged) {
   const N = +nSlider.value, M = +capSlider.value, cbar = +cbarSlider.value;
   nOut.textContent = N; capOut.textContent = M; cbarOut.textContent = cbar;
   if (structChanged) {
@@ -765,16 +690,15 @@ function updateVizD(structChanged) {
   document.getElementById("tileHd").textContent = h >= 1 ? "工作集全部装下" : "回头必丢前缀";
   document.getElementById("tileA").textContent = "×" + ((DELTA + (1 - h) * cbar) / DELTA).toFixed(1);
   document.getElementById("tileG").textContent = (g * 100).toFixed(g > 0.99 ? 1 : 0) + "%";
-  document.getElementById("tileGd").textContent = "GPU 利用率仍是 100%";
   cliffChart.setMarker(N);
 }
-nSlider.addEventListener("input", () => updateVizD(false));
-capSlider.addEventListener("input", () => updateVizD(true));
-cbarSlider.addEventListener("input", () => updateVizD(true));
+nSlider.addEventListener("input", () => updateCliff(false));
+capSlider.addEventListener("input", () => updateCliff(true));
+cbarSlider.addEventListener("input", () => updateCliff(true));
 
 /* 初始渲染 */
-updateVizA(true);
-updateVizD(true);
+updatePool(true);
+updateCliff(true);
 </script>
 </body>
 </html>
