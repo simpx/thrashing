@@ -222,7 +222,8 @@
   <div class="card">
     <div class="controls">
       <button class="play" id="poolPlay">▶ 从头回放</button>
-      <button class="play" id="poolStep">单步</button>
+      <button class="play" id="poolPrev">‹ 上一步</button>
+      <button class="play" id="poolStep">下一步 ›</button>
       <button class="play" id="poolFF">⏭ 跳到结局</button>
       <label>进度<input type="range" id="poolPos" min="0" max="33" step="1" value="33"><output id="poolPosOut">33</output>/33 轮</label>
       <label>速度<input type="range" id="poolSpeed" min="0.5" max="4" step="0.5" value="1.5"><output id="poolSpeedOut">1.5</output>轮/s</label>
@@ -237,6 +238,7 @@
       <div class="poolside">
         <p class="chart-title">正在发生什么</p>
         <p class="readout" id="poolLog"></p>
+        <p class="chart-note" id="poolNext"></p>
         <div class="tiles">
           <div class="tile"><div class="tl">超线的回头轮</div><div class="tv" id="distMiss">—</div><div class="td" id="distMissd"></div></div>
           <div class="tile"><div class="tl">重算合计</div><div class="tv" id="distRe">—</div><div class="td">落在线下的尾巴总量</div></div>
@@ -635,6 +637,7 @@ document.getElementById("ehTable").innerHTML =
     idx = 0; ctx = [0, 0, 0, 0, 0]; order = []; sumNew = 0; seenReturns = []; lastEv = null;
     lastSpoke = [null, null, null, null, null];
     bands.forEach(b => { b.style.display = "none"; });
+    box.querySelectorAll(".flash-re").forEach(n => n.remove());
     layout(); tiles(); refreshStrip();
     logEl.textContent = "回放中…";
   }
@@ -710,12 +713,25 @@ document.getElementById("ehTable").innerHTML =
       playhead.setAttribute("x1", tsX(lastEv.u)); playhead.setAttribute("x2", tsX(lastEv.u));
       playhead.setAttribute("visibility", "visible");
     } else playhead.setAttribute("visibility", "hidden");
+    preview();
+  }
+  /* 预告下一步，提示该盯哪条带子 */
+  function preview() {
+    const el = document.getElementById("poolNext");
+    if (idx >= EVENTS.length) { el.textContent = "已到结局。"; return; }
+    const e = EVENTS[idx];
+    const who = `<b style="color:var(--series-${e.si + 1})">会话 ${e.si + 1}</b>`;
+    if (e.k === 0) { el.innerHTML = `下一步（t=${e.u}s）：${who} 首次到达，冷启动 ${e.d}k。`; return; }
+    const r = RET.get(e.si * 100 + e.k), re = recompAt(r, M);
+    el.innerHTML = re > 0
+      ? `下一步（t=${e.u}s）：${who} 第 ${e.k + 1} 轮回来，深度 ${r.dist}k，<b style="color:var(--status-critical)">线下 ${re}k 将重算</b>${re >= r.prev ? "（整个前缀）" : ""}，另加新增 ${e.d}k。`
+      : `下一步（t=${e.u}s）：${who} 第 ${e.k + 1} 轮回来，深度 ${r.dist}k ≤ M → 全命中，只算新增 ${e.d}k。`;
   }
   function seek(t) {
     stop();
     if (!lastEv || t < lastEv.u) reset();
     while (idx < EVENTS.length && EVENTS[idx].u <= t) step(false);
-    if (!lastEv) logEl.textContent = "在起点。按 ▶ 播放、单步，或点时序图跳转。";
+    if (!lastEv) logEl.textContent = "在起点。按 ▶ 播放、下一步，或点时序图跳转。";
     playBtn.textContent = idx >= EVENTS.length ? "▶ 从头回放" : (idx ? "▶ 继续" : "▶ 播放");
     refreshStrip();
   }
@@ -729,17 +745,19 @@ document.getElementById("ehTable").innerHTML =
   tsSvg.addEventListener("pointerdown", ev => { tsDown = true; tsSvg.setPointerCapture(ev.pointerId); tsPick(ev); });
   tsSvg.addEventListener("pointermove", ev => { if (tsDown) tsPick(ev); });
   tsSvg.addEventListener("pointerup", () => tsDown = false);
-  /* 进度滑杆：拖到第几轮，栈就演化到第几轮 */
-  posSlider.addEventListener("input", () => {
+  /* 上一步 / 下一步 / 进度滑杆共用的跳转 */
+  function gotoStep(target) {
     stop();
-    const target = +posSlider.value;
+    target = clamp(target, 0, EVENTS.length);
     if (target < idx) reset();
     while (idx < target) step(false);
-    if (!lastEv) logEl.textContent = "在起点。按 ▶ 播放、单步，或拖动进度。";
+    if (!lastEv) logEl.textContent = "在起点。按 ▶ 播放、下一步，或拖动进度。";
     playBtn.textContent = idx >= EVENTS.length ? "▶ 从头回放" : (idx ? "▶ 继续" : "▶ 播放");
     refreshStrip();
-  });
-  /* 单步 */
+  }
+  posSlider.addEventListener("input", () => gotoStep(+posSlider.value));
+  document.getElementById("poolPrev").addEventListener("click", () => gotoStep(idx - 1));
+  /* 下一步（带动画） */
   document.getElementById("poolStep").addEventListener("click", () => {
     stop();
     if (idx >= EVENTS.length) reset();
