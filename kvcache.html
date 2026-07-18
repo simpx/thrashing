@@ -87,7 +87,6 @@
   .axtext    { fill: var(--text-secondary); font-size: 12px; }
   .anno      { fill: var(--muted); font-size: 11px; font-style: italic; }
   .anno.strong { fill: var(--text-secondary); font-style: normal; font-weight: 600; }
-  .anno.halo { fill: var(--text-secondary); font-size: 11px; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3.5; stroke-linejoin: round; }
   .s1-line { stroke: var(--series-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s2-line { stroke: var(--series-2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s3-line { stroke: var(--series-3); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
@@ -100,10 +99,22 @@
   .seg-re  { fill: var(--status-critical); opacity: .82; stroke: var(--surface-1); stroke-width: 2; }
   .cap-line { stroke: var(--text-secondary); stroke-width: 1.5; }
   .cap-text { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
-  .d-others { fill: var(--band-fill); opacity: .55; }
-  .d-re { fill: var(--status-critical); opacity: .85; }
-  .sess-0 { fill: var(--series-1); } .sess-1 { fill: var(--series-2); } .sess-2 { fill: var(--series-3); }
-  .sess-3 { fill: var(--series-4); } .sess-4 { fill: var(--series-5); }
+  .poolwrap { display: flex; gap: 18px; flex-wrap: wrap; }
+  .stackcol { flex: 0 0 300px; max-width: 100%; }
+  .poolside { flex: 1 1 260px; min-width: 240px; }
+  #poolLog { min-height: 3.6em; }
+  #stackBox { position: relative; height: 372px; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); overflow: hidden; }
+  .band { position: absolute; left: 6px; right: 6px; border-radius: 5px; overflow: hidden; display: flex; align-items: flex-start; padding: 2px 8px 0; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
+  .band.hitflash { animation: fhit .6s ease-out; }
+  @keyframes fhit { 0% { filter: brightness(1.45); } 100% { filter: none; } }
+  #ghostWash { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; background: color-mix(in srgb, var(--page) 64%, transparent); pointer-events: none; }
+  #mDivider { position: absolute; left: 0; right: 0; z-index: 3; border-top: 2px dashed var(--series-1); cursor: grab; touch-action: none; }
+  #mDivider:active { cursor: grabbing; }
+  #mDivider::before { content: ""; position: absolute; left: 0; right: 0; top: -9px; height: 18px; }
+  #mDivider .tag { position: absolute; right: 6px; top: -10px; background: var(--series-1); color: #fff; font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; user-select: none; }
+  .flash-re { position: absolute; left: 6px; right: 6px; z-index: 4; background: var(--status-critical); border-radius: 4px; pointer-events: none; animation: fre .95s ease-out forwards; }
+  @keyframes fre { 0% { opacity: .95; } 65% { opacity: .8; } 100% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .band { transition: none; } .flash-re, .band.hitflash { animation: none; } }
   .tt { position: absolute; pointer-events: none; display: none; z-index: 5; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: 7px 11px; font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; line-height: 1.6; }
   .tt b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
   .tt .key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
@@ -192,33 +203,43 @@
 
 <section id="pool">
   <div class="kicker">关键点三（上）</div>
-  <h2>4. 把 5 个会话放进一个 LRU 池：stack distance</h2>
-  <p>第 2 节的账单来自下面这个池子。池子的规则只有一条（vLLM / SGLang 的真实行为）：<b>块进来就留下；需要空间时，从“最久没说话”的会话尾部逐出。</b>在这条规则下，每个回头轮的命运由一个数决定：</p>
+  <h2>4. 把 5 个会话放进一个 LRU 池</h2>
+  <p>第 2 节的账单来自下面这个池子。池子的规则只有一条（vLLM / SGLang 的真实行为）：<b>块进来就留下；需要空间时，从“最久没说话”的会话尾部逐出。</b>块级 LRU 落在只增不减的前缀上，涌现出来的其实是 <b>session 级 LRU</b>：所有会话按“最近说话”排成一个栈——谁开口谁浮到栈顶，容量线以下的尾巴已被逐出。</p>
   <div class="defbox">
-    <p><b>Stack distance = 自上次说话以来别人垫进池子的量 + 自己的前缀。</b>柱子低于容量线 M → 前缀全在，免费复用；<b>柱子高出 M 的部分（变红）= 这一轮要重算的量</b>，最多红到整个前缀。</p>
-    <p>柱高与 M 无关——<b>拖动 M，命中与重算实时翻转，柱子永远不动</b>：一张图回答所有容量。</p>
+    <p><b>Stack distance = 回来那一刻你在栈里的深度</b>（压在上面的别人 + 自己的前缀）。深度 ≤ M → 前缀全在，免费复用；<b>深度超出 M 的部分 = 已被逐出的尾巴，本轮重算</b>，最多亏掉整个前缀。</p>
+    <p>栈的顺序与 M 无关——<b>拖动容量线，只有“命中还是重算”在翻转，栈本身一格不动</b>：一遍回放，回答所有容量（Mattson 1970 的老技巧）。</p>
   </div>
   <div class="card">
     <div class="controls">
+      <button class="play" id="poolPlay">▶ 从头回放</button>
+      <button class="play" id="poolFF">⏭ 跳到结局</button>
+      <label>速度<input type="range" id="poolSpeed" min="0.5" max="4" step="0.5" value="1.5"><output id="poolSpeedOut">1.5</output>轮/s</label>
       <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="60" max="240" step="10" value="120"><output id="mOut">120</output>k</label>
     </div>
-    <div class="legend"><span><span class="key" style="background:var(--series-1);height:8px"></span>会话 1</span><span><span class="key" style="background:var(--series-2);height:8px"></span>会话 2</span><span><span class="key" style="background:var(--series-3);height:8px"></span>会话 3</span><span><span class="key" style="background:var(--series-4);height:8px"></span>会话 4</span><span><span class="key" style="background:var(--series-5);height:8px"></span>会话 5</span></div>
-    <p class="chart-title">每个回头轮的 stack distance（按到达顺序）</p>
-    <p class="chart-note">柱底灰段 = 沉默期间别人垫进来的量；顶段彩色 = 自己的前缀（颜色与柱下数字 = 会话编号）。各会话的首轮是冷启动，不画。</p>
-    <div class="chart-wrap" id="distPlot"></div>
-    <div class="tiles">
-      <div class="tile"><div class="tl">超线的回头轮</div><div class="tv" id="distMiss">—</div><div class="td" id="distMissd"></div></div>
-      <div class="tile"><div class="tl">重算合计</div><div class="tv" id="distRe">—</div><div class="td">柱子高出 M 的红色总量</div></div>
-      <div class="tile"><div class="tl">池子 goodput</div><div class="tv" id="distGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
+    <div class="poolwrap">
+      <div class="stackcol">
+        <p class="chart-title">session 级 LRU 栈（顶 = 最近说话）</p>
+        <p class="chart-note">带子高度 = 该会话的 context；虚线可拖。</p>
+        <div id="stackBox"></div>
+      </div>
+      <div class="poolside">
+        <p class="chart-title">正在发生什么</p>
+        <p class="readout" id="poolLog"></p>
+        <div class="tiles">
+          <div class="tile"><div class="tl">超线的回头轮</div><div class="tv" id="distMiss">—</div><div class="td" id="distMissd"></div></div>
+          <div class="tile"><div class="tl">重算合计</div><div class="tv" id="distRe">—</div><div class="td">落在线下的尾巴总量</div></div>
+          <div class="tile"><div class="tl">池子 goodput</div><div class="tv" id="distGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
+        </div>
+      </div>
     </div>
   </div>
-  <p>两件值得盯着看的事：<b>会话 1 的三根超线柱，正是第 2 节账单里的三段红色</b>（+34s / +36s / +19s → 被啃 10k / 33k / 18k，同一份数据）；<b>把 M 拉到顶，红色全部消失；压到底，几乎每个回头轮都在重算</b>——那就是下一节悬崖的前奏。</p>
+  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。</p>
 </section>
 
 <section id="cliff">
   <div class="kicker">关键点三（下）</div>
   <h2>5. 雪崩线：跨过去就是断崖</h2>
-  <p>上一节的柱子高矮不一，是因为 5 个会话节奏各异——有人插空、有人沉默。现在把负载推到极限：N 个 session 轮流说话、context 都是 <em class="v">c̄</em>、每轮新增 0.5k token。这时<b>每根柱子都一样高</b>：stack distance = 别人垫的 (N−1)·c̄ + 自己的 c̄ = <b>N·c̄</b>。柱子同高，结局就只有两种：整齐地全在 M 线下（人人全命中），或整齐地全超线（人人重算）——<b>命中率不是缓降而是阶跃归零</b>。悬崖的位置就在：</p>
+  <p>上一节栈里的深度参差不齐，是因为 5 个会话节奏各异——有人插空、有人沉默。现在把负载推到极限：N 个 session 轮流说话、context 都是 <em class="v">c̄</em>、每轮新增 0.5k token。这时每次回来，压在你上面的恰好是其余 N−1 个会话：<b>stack distance 人人都是 (N−1)·c̄ + c̄ = N·c̄</b>。深度人人相同，结局就只有两种：全体在线内（人人全命中），或全体同时超线（人人重算）——<b>命中率不是缓降而是阶跃归零</b>。悬崖的位置就在：</p>
   <div class="defbox"><p><b>雪崩线：N × c̄ = M（即 Σcontext = M）</b>　——HBM 越大养得起的 session 越多，跨过线即雪崩。</p></div>
   <div class="card">
     <div class="controls">
@@ -231,10 +252,10 @@
       <div class="tile"><div class="tl">Goodput</div><div class="tv" id="tileG">—</div><div class="td">GPU 利用率仍是 100%</div></div>
     </div>
     <p class="chart-title">Goodput 与 session 数 N（当前 M、c̄ 下）</p>
-    <div class="legend"><span><span class="key k1"></span>块级 LRU 超卖</span><span><span class="key k2"></span>session 级准入</span></div>
+    <div class="legend"><span><span class="key k1"></span>LRU 超卖</span><span><span class="key k2"></span>session 级准入</span></div>
     <div class="chart-wrap" id="cliffChart"></div>
     <details class="tbl"><summary>模型公式与推导</summary>
-      <p>块级 LRU：每个回头轮的 stack distance = N·c̄，重算量 = clamp(N·c̄ − M, 0, c̄)（第 4 节的规则），故命中率 h = clamp((M − (N−1)·c̄) / c̄, 0, 1)——在宽度仅 c̄ 的过渡带内从 1 跌到 0。每轮实际算量 = δ + (1−h)·c̄，<b>goodput = δ / (δ + (1−h)·c̄)</b>。</p>
+      <p>LRU 超卖：每个回头轮的 stack distance = N·c̄，重算量 = clamp(N·c̄ − M, 0, c̄)（第 4 节的规则），故命中率 h = clamp((M − (N−1)·c̄) / c̄, 0, 1)——在宽度仅 c̄ 的过渡带内从 1 跌到 0。每轮实际算量 = δ + (1−h)·c̄，<b>goodput = δ / (δ + (1−h)·c̄)</b>。</p>
       <p>session 级准入：K = ⌊M / c̄⌋ 个 session 驻留、全命中；其余 N−K 个不驻留，每轮自付全量重算，但不侵占驻留者的空间。goodput = N·δ / (K·δ + (N−K)·(δ + c̄))。</p>
       <p>准入控制消灭不了工作量（超额 session 开口就得算，绿线也会下垂），它消灭的是<b>互相踩踏</b>：驻留的 K 个 session 效率恒为 100%，损失被隔离在超额者身上。</p>
     </details>
@@ -259,7 +280,7 @@
 
 <footer>
   <p>前篇：<a href="index.html">工作集与抖动 — 看懂 Peter Denning 的 1968</a></p>
-  <p>参考：Denning, “The Working Set Model for Program Behavior”, CACM 1968 · Denning, “Thrashing: Its Causes and Prevention”, AFIPS FJCC 1968 · Kwon et al., “Efficient Memory Management for LLM Serving with PagedAttention”（vLLM）, SOSP 2023 · Zheng et al., “SGLang”（RadixAttention）, 2024 · Gao et al., “CachedAttention”, USENIX ATC 2024 · Qin et al., “Mooncake”, 2024。</p>
+  <p>参考：Denning, “The Working Set Model for Program Behavior”, CACM 1968 · Denning, “Thrashing: Its Causes and Prevention”, AFIPS FJCC 1968 · Mattson et al., “Evaluation Techniques for Storage Hierarchies”, IBM Systems Journal 1970 · Kwon et al., “Efficient Memory Management for LLM Serving with PagedAttention”（vLLM）, SOSP 2023 · Zheng et al., “SGLang”（RadixAttention）, 2024 · Gao et al., “CachedAttention”, USENIX ATC 2024 · Qin et al., “Mooncake”, 2024。</p>
   <p>页面中的轨迹与模型为教学用途的简化模拟；公式与参数标注于正文，图表附数据表或推导。</p>
 </footer>
 
@@ -365,12 +386,16 @@ const RETURNS = (() => {
     if (e.k === 0) continue;
     const prevU = SESSIONS[e.si].turns[e.k - 1][0];
     const prev = ctxAt(e.si, prevU);
-    let others = 0;
+    /* 沉默期间说过话的会话 = LRU 栈里压在自己上面的部分，按最近说话排序 */
+    const stack = [];
     SESSIONS.forEach((sn, j) => {
       if (j === e.si) return;
-      if (sn.turns.some(([t]) => t > prevU && t <= e.u)) others += ctxAt(j, e.u);
+      const spoke = sn.turns.filter(([t]) => t > prevU && t <= e.u);
+      if (spoke.length) stack.push({ si: j, amt: ctxAt(j, e.u), last: spoke[spoke.length - 1][0] });
     });
-    out.push({ ...e, prev, others, dist: prev + others });
+    stack.sort((a, b) => b.last - a.last);
+    const others = stack.reduce((a, s) => a + s.amt, 0);
+    out.push({ ...e, prev, others, stack, dist: prev + others });
   }
   return out;
 })();
@@ -452,67 +477,134 @@ document.getElementById("ehTable").innerHTML =
       `<td>${(100 / (1 + (1 - h / 100) * r)).toFixed(1)}%</td>`).join("") + "</tr>").join("") +
   "</table>";
 
-/* ================= 第 4 节：stack distance 柱图 ================= */
+/* ================= 第 4 节：session 级 LRU 栈回放 ================= */
 {
-  const W = 860, H = 330, ml = 46, mr = 16, mt = 22, mb = 46, ymax = 240;
-  const Y = v => mt + (H - mt - mb) * (1 - v / ymax);
-  const slot = (W - ml - mr) / RETURNS.length;
-  const barW = Math.min(20, slot - 6);
-  const xC = i => ml + (i + 0.5) * slot;
-  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
-                             "aria-label": "每个回头轮的 stack distance 柱图" }, null);
-  document.getElementById("distPlot").appendChild(svg);
-  [0, 60, 120, 180, 240].forEach(v => {
-    svgEl("line", { x1: ml, x2: W - mr, y1: Y(v), y2: Y(v), class: "gridline" }, svg);
-    svgEl("text", { x: ml - 8, y: Y(v) + 4, "text-anchor": "end", class: "ticktext" }, svg).textContent = v;
+  const EVENTS = [];
+  SESSIONS.forEach((sn, si) => sn.turns.forEach(([u, d], k) => EVENTS.push({ si, k, u, d })));
+  EVENTS.sort((a, b) => a.u - b.u);
+  const RET = new Map(RETURNS.map(r => [r.si * 100 + r.k, r]));
+  const box = document.getElementById("stackBox");
+  const S = 1.3, PAD = 6;                        /* 竖直比例：px / 千 token */
+  const wash = document.createElement("div"); wash.id = "ghostWash"; box.appendChild(wash);
+  const divider = document.createElement("div"); divider.id = "mDivider";
+  divider.innerHTML = '<div class="tag"></div>'; box.appendChild(divider);
+  const bands = SESSIONS.map((sn, si) => {
+    const b = document.createElement("div");
+    b.className = "band"; b.style.background = `var(--series-${si + 1})`;
+    b.style.display = "none"; box.insertBefore(b, wash);
+    return b;
   });
-  svgEl("line", { x1: ml, x2: W - mr, y1: Y(0), y2: Y(0), class: "axisline" }, svg);
-  svgEl("text", { x: ml - 40, y: 12, class: "axtext" }, svg).textContent = "千 token";
-  svgEl("text", { x: ml + (W - ml - mr) / 2, y: H - 4, "text-anchor": "middle", class: "axtext" }, svg)
-    .textContent = "回头轮，按到达顺序——柱下数字 = 会话编号";
-  RETURNS.forEach((r, i) => {
-    if (r.others > 0) {
-      const o = svgEl("rect", { x: xC(i) - barW / 2, width: barW, y: Y(r.others), height: Y(0) - Y(r.others), class: "d-others" }, svg);
-      svgEl("title", {}, o).textContent = `${SESSIONS[r.si].name} 第 ${r.k + 1} 轮：沉默期间别人垫进 ${r.others}k`;
-    }
-    const own = svgEl("rect", { x: xC(i) - barW / 2, width: barW, y: Y(r.dist), height: Y(r.others) - Y(r.dist), class: "sess-" + r.si }, svg);
-    svgEl("title", {}, own).textContent = `${SESSIONS[r.si].name} 第 ${r.k + 1} 轮（t=${r.u}s）：distance ${r.dist}k（别人垫 ${r.others}k + 自己前缀 ${r.prev}k）`;
-    svgEl("text", { x: xC(i), y: H - mb + 16, "text-anchor": "middle", class: "ticktext" }, svg).textContent = r.si + 1;
-  });
-  /* 注释：会话 1 的两次长停顿 */
-  const annoBar = (si, k, label) => {
-    const idx = RETURNS.findIndex(r => r.si === si && r.k === k);
-    if (idx < 0) return;
-    svgEl("text", { x: xC(idx), y: Y(RETURNS[idx].dist) - 8, "text-anchor": "middle", class: "anno halo" }, svg)
-      .textContent = label;
-  };
-  annoBar(0, 5, "会话 1 的 +34s 停顿");
-  annoBar(0, 9, "会话 1 的 +36s 停顿");
-  const overGroup = svgEl("g", {}, svg);
-  const mLine = svgEl("line", { x1: ml, x2: W - mr, class: "cap-line" }, svg);
-  const mText = svgEl("text", { x: W - mr - 4, "text-anchor": "end", class: "cap-text" }, svg);
   const mSlider = document.getElementById("mSlider"), mOut = document.getElementById("mOut");
-  function updateM() {
-    const M = +mSlider.value;
-    mOut.textContent = M;
-    mLine.setAttribute("y1", Y(M)); mLine.setAttribute("y2", Y(M));
-    mText.setAttribute("y", Y(M) - 6);
-    mText.textContent = `容量 M = ${M}k`;
-    overGroup.innerHTML = "";
-    let misses = 0, totalRe = 0;
-    RETURNS.forEach((r, i) => {
-      const re = recompAt(r, M);
-      if (re <= 0) return;
-      misses++; totalRe += re;
-      svgEl("rect", { x: xC(i) - barW / 2, width: barW, y: Y(r.dist), height: Y(r.dist - re) - Y(r.dist), class: "d-re" }, overGroup);
-    });
-    document.getElementById("distMiss").textContent = misses + " / " + RETURNS.length;
-    document.getElementById("distMissd").textContent = misses ? "红色部分要重算" : "全部命中";
-    document.getElementById("distRe").textContent = totalRe + "k";
-    document.getElementById("distGp").textContent = Math.round(TOTAL_NEW / (TOTAL_NEW + totalRe) * 100) + "%";
+  const logEl = document.getElementById("poolLog");
+  let M = +mSlider.value;
+  let idx = 0, ctx = [0, 0, 0, 0, 0], order = [], sumNew = 0, seenReturns = [];
+  let lastEv = null;
+
+  function layout() {
+    let off = 0;
+    for (const si of order) {
+      const b = bands[si];
+      b.style.display = "flex";
+      b.style.top = (PAD + off * S) + "px";
+      b.style.height = Math.max(3, ctx[si] * S - 1) + "px";
+      b.textContent = ctx[si] * S >= 15 ? `会话 ${si + 1} · ${ctx[si]}k` : "";
+      b.title = `会话 ${si + 1}：context ${ctx[si]}k，深度 ${off}k–${off + ctx[si]}k`;
+      off += ctx[si];
+    }
+    bands.forEach((b, si) => { if (!order.includes(si)) b.style.display = "none"; });
   }
-  mSlider.addEventListener("input", updateM);
-  updateM();
+  function layoutM() {
+    const y = PAD + M * S;
+    divider.style.top = y + "px";
+    divider.querySelector(".tag").textContent = `容量 M = ${M}k · 以下已逐出`;
+    wash.style.top = (y + 1) + "px";
+  }
+  function tiles() {
+    let re = 0, miss = 0;
+    for (const r of seenReturns) { const v = recompAt(r, M); if (v > 0) { miss++; re += v; } }
+    document.getElementById("distMiss").textContent = seenReturns.length ? miss + " / " + seenReturns.length : "—";
+    document.getElementById("distMissd").textContent = seenReturns.length ? (miss ? "尾巴落在线下" : "全部命中") : "";
+    document.getElementById("distRe").textContent = re + "k";
+    document.getElementById("distGp").textContent = sumNew ? Math.round(sumNew / (sumNew + re) * 100) + "%" : "—";
+  }
+  function log() {
+    if (!lastEv) return;
+    const e = lastEv;
+    const head = `<b>t=${e.u}s · 第 ${e.n}/${EVENTS.length} 轮 · 会话 ${e.si + 1}</b>：`;
+    if (e.k === 0) { logEl.innerHTML = head + `首次到达，冷启动，算全部 ${e.d}k。`; return; }
+    const r = RET.get(e.si * 100 + e.k), re = recompAt(r, M);
+    logEl.innerHTML = re > 0
+      ? head + `沉默中被压到深度 ${r.dist}k，<b style="color:var(--status-critical)">线下 ${re}k 尾巴已被逐出 → 重算</b>，再算新增 ${e.d}k。`
+      : head + `深度 ${r.dist}k ≤ M，前缀 ${r.prev}k 全命中，只算新增 ${e.d}k。`;
+  }
+  function step(anim) {
+    if (idx >= EVENTS.length) return false;
+    const e = EVENTS[idx++];
+    if (e.k > 0) {
+      const r = RET.get(e.si * 100 + e.k);
+      seenReturns.push(r);
+      const re = recompAt(r, M);
+      if (anim && re > 0) {
+        const f = document.createElement("div");
+        f.className = "flash-re";
+        f.style.top = (PAD + (r.dist - re) * S) + "px";
+        f.style.height = re * S + "px";
+        box.appendChild(f);
+        setTimeout(() => f.remove(), 950);
+      } else if (anim) {
+        bands[e.si].classList.remove("hitflash"); void bands[e.si].offsetWidth;
+        bands[e.si].classList.add("hitflash");
+      }
+    }
+    sumNew += e.d;
+    ctx[e.si] += e.d;
+    order = [e.si, ...order.filter(s => s !== e.si)];
+    lastEv = { ...e, n: idx };
+    layout(); tiles(); log();
+    return true;
+  }
+  function reset() {
+    idx = 0; ctx = [0, 0, 0, 0, 0]; order = []; sumNew = 0; seenReturns = []; lastEv = null;
+    bands.forEach(b => { b.style.display = "none"; });
+    layout(); tiles();
+    logEl.textContent = "回放中…";
+  }
+  /* 播放控制 */
+  const playBtn = document.getElementById("poolPlay"), ffBtn = document.getElementById("poolFF");
+  const spd = document.getElementById("poolSpeed"), spdOut = document.getElementById("poolSpeedOut");
+  let timer = null;
+  function stop(label) { if (timer) { clearInterval(timer); timer = null; } if (label) playBtn.textContent = label; }
+  function start() {
+    stop();
+    playBtn.textContent = "⏸ 暂停";
+    timer = setInterval(() => { if (!step(true)) stop("▶ 从头回放"); }, 1000 / +spd.value);
+  }
+  playBtn.addEventListener("click", () => {
+    if (timer) { stop("▶ 继续"); return; }
+    if (idx >= EVENTS.length) reset();
+    start();
+  });
+  ffBtn.addEventListener("click", () => { stop("▶ 从头回放"); while (step(false)); });
+  spd.addEventListener("input", () => { spdOut.textContent = spd.value; if (timer) start(); });
+  /* 容量线：滑块 + 直接拖 */
+  function setM(v) {
+    M = clamp(Math.round(v / 10) * 10, 60, 240);
+    mSlider.value = M; mOut.textContent = M;
+    layoutM(); tiles(); log();
+  }
+  mSlider.addEventListener("input", () => setM(+mSlider.value));
+  let drag = false;
+  divider.addEventListener("pointerdown", ev => { drag = true; divider.setPointerCapture(ev.pointerId); ev.preventDefault(); });
+  divider.addEventListener("pointermove", ev => {
+    if (!drag) return;
+    setM((ev.clientY - box.getBoundingClientRect().top - PAD) / S);
+  });
+  divider.addEventListener("pointerup", () => drag = false);
+  /* 初始：直接展示结局 */
+  layoutM();
+  while (step(false));
+  playBtn.textContent = "▶ 从头回放";
+  logEl.innerHTML = "上面是 t=196s 收场时的栈。按 <b>▶ 从头回放</b> 看它怎么长成这样，或直接拖那条容量线。";
 }
 
 /* ================= 第 5 节：雪崩线 ================= */
@@ -531,7 +623,7 @@ const cliffChart = lineChart(document.getElementById("cliffChart"), {
   xName: "N", snap: v => clamp(Math.round(v), 1, NMAXP),
   yFmt: v => Math.round(v * 100) + "%",
   series: [
-    { name: "块级 LRU 超卖", cls: "s1", points: [] },
+    { name: "LRU 超卖", cls: "s1", points: [] },
     { name: "session 级准入", cls: "s2", points: [] },
   ],
   ariaLabel: "goodput 随并发数变化的折线图",
