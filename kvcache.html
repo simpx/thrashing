@@ -101,8 +101,10 @@
   .s3-dot  { fill: var(--series-3); stroke: var(--surface-1); stroke-width: 2; }
   .crosshair { stroke: var(--baseline); stroke-width: 1; }
   .ref-dot      { fill: var(--muted); opacity: .5; }
-  .ref-dot.inwin{ fill: var(--series-1); opacity: 1; }
+  .ref-dot.hit  { fill: var(--series-1); opacity: .85; }
   .ref-dot.miss { fill: var(--status-critical); opacity: .9; }
+  .demand-line  { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
+  .kv-debt      { fill: var(--status-critical); opacity: .13; }
   .solo-foot    { fill: var(--band-fill); }
   .bar-hit      { fill: var(--series-1); }
   .bar-miss     { fill: var(--status-critical); }
@@ -181,15 +183,16 @@
 <section id="ws">
   <div class="kicker">概念一的转世</div>
   <h2>2. 一个 session 的工作集：全有或全无</h2>
-  <p>沿用前篇的路线：<b>先看一个 session 随时间的变化</b>——τ 怎么选（第 3 节）、miss 有多贵（第 4 节），都在单个 session 上就能讲清；多个 session 互相挤占，是第 5 节以后的事。</p>
+  <p>沿用前篇的路线：<b>先看一个 session 随时间的变化</b>——存活期的经济账（第 3 节）、miss 有多贵（第 4 节），都在单个 session 上就能讲清；多个 session 在 LRU 池里互相挤占，是第 5 节以后的事。</p>
   <div class="defbox">
-    <p><b>定义（单个 session）</b>　一个 session 在时刻 <em class="v">t</em>、窗口 <em class="v">τ</em> 下的工作集：若它在最近 <em class="v">τ</em> 秒内有过轮次到达，就是它的<b>全部前缀 KV</b>；否则为空集。没有中间状态——前篇的工作集是逐页进出窗口的，这里一旦活跃就是整个前缀，因为 attention 需要完整历史。</p>
+    <p><b>定义（单个 session）</b>　一个 session 在时刻 <em class="v">t</em>、存活期 <em class="v">τ</em> 下的工作集：若它在最近 <em class="v">τ</em> 秒内有过轮次到达，就是它的<b>全部前缀 KV</b>；否则为空集。没有中间状态——前篇的工作集是逐页进出窗口的，这里一旦活跃就是整个前缀，因为 attention 需要完整历史。</p>
     <p>局部性也还在，只是换了地方：session 内部没有局部性可言——每轮都要摸全部历史 block，块级访问是“循环全扫”。<b>所有的局部性都在时间维度上</b>：刚说过话的 session 大概率马上还会说话（用户还在对话界面前），沉默越久回来的概率越低。这里的“轮次间隔”（分时系统文献里的老词 think time，指用户读回复、打字的时间，与模型的 thinking 无关）就是前篇引用串局部性的转世。</p>
   </div>
-  <p>既然工作集全有或全无，一张图就必须同时记<b>两本账</b>：<b>内存账</b>（灰色区域 = KV 驻留在 HBM 的时段，高度 = context 大小）和<b>计算账</b>（每轮一根柱子 = 这一轮实际要算多少 token）。间隔不超过 τ 的轮次是蓝柱——只算新增的一小截；间隔超过 τ 的轮次是红柱——前缀已被释放，<b>整个历史全量重算</b>，柱子一下子顶到 context 全高。这个 session 的常规节奏是 8–12 秒一轮，中间有 19、34、36 秒三次长停顿：</p>
+  <p>先钉一句关键的话：<b>单独一个 session、内存无限时，它永远不会 miss</b>（首轮除外）——块不会自己坏掉，miss 的唯一来源是沉默期间块被<b>容量压力</b>挤掉了。所以本节做的是 what-if 分析：<b>假如它的块在池里能存活 τ 秒</b>，账会怎样。τ 在这里是分析变量，不是谁设置的参数——到第 5 节你会看到，它是容量竞争挤出来的结果。</p>
+  <p>既然工作集全有或全无，一张图就必须同时记<b>两本账</b>：<b>内存账</b>（灰色区域 = KV 驻留在 HBM 的时段，高度 = context 大小）和<b>计算账</b>（每轮一根柱子 = 这一轮实际要算多少 token）。间隔不超过存活期 τ 的轮次是蓝柱——只算新增的一小截；间隔超过 τ 的轮次是红柱——前缀已被挤掉，<b>整个历史全量重算</b>，柱子一下子顶到 context 全高。这个 session 的常规节奏是 8–12 秒一轮，中间有 19、34、36 秒三次长停顿：</p>
   <div class="card">
     <div class="controls">
-      <label>保留窗口 <em class="v">τ</em><input type="range" id="soloTau" min="5" max="60" value="15"><output id="soloTauOut">15</output>s</label>
+      <label>存活期 <em class="v">τ</em><input type="range" id="soloTau" min="5" max="60" value="15"><output id="soloTauOut">15</output>s</label>
     </div>
     <div class="legend"><span><span class="key k1"></span>命中轮：只算新增 δ</span><span><span class="key" style="background:var(--status-critical)"></span>重算轮：整个前缀重算</span><span style="color:var(--muted)">灰色区域 = KV 驻留在 HBM 的时段</span></div>
     <div class="chart-wrap" id="soloPlot"></div>
@@ -199,14 +202,14 @@
       <div class="tile"><div class="tl">该 session 的 goodput</div><div class="tv" id="soloGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
     </div>
   </div>
-  <p>拖动 τ 就能看到那笔交易：<b>τ 调小，灰色面积缩水（HBM 省了），但红柱冒出来（重算账单来了）</b>——goodput 从 100% 一路掉。τ 调大则相反：红柱消失，代价是这个 session 沉默期间一直占着 HBM。KV 在计算的那一刻必须全量在场，谁也省不掉；τ 买卖的只是沉默期间留不留——<b>留 = 用 HBM 换掉未来的重算，丢 = 用未来的重算换出 HBM</b>。</p>
+  <p>拖动 τ 就能看到那笔交易：<b>τ 调小，灰色面积缩水（HBM 省了），但红柱冒出来（重算账单来了）</b>——goodput 从 100% 一路掉。τ 调大则相反：红柱消失，代价是这个 session 沉默期间一直占着 HBM。KV 在计算的那一刻必须全量在场，谁也省不掉；存活期买卖的只是沉默期间留不留——<b>留 = 用 HBM 换掉未来的重算，丢 = 用未来的重算换出 HBM</b>。而“能存活多久”这个决定，现实中不是谁拍板的参数，是池子里竞争的结果。</p>
 
 </section>
 
 <section id="tau">
   <div class="kicker">参数选择</div>
-  <h2>3. τ 怎么选：还是在单个 session 上选</h2>
-  <p>τ 是每个 session 各自的保留期限，选它不需要多 session 出场。前篇里 τ 的选择靠 s(τ) 曲线的膝点，且缺页率恰好是它的斜率（m(τ) = s′(τ)）。这个恒等式在这里的转世是：<b>miss 率 ≈ 轮次间隔超过 τ 的概率</b>——s(τ) 花的是 HBM，m(τ) 省的是重算。两条曲线都对第 2 节那个 session 计算：</p>
+  <h2>3. 存活期的经济学：两条曲线，一个对偶</h2>
+  <p>既然没人设置 τ，为什么还要画它的曲线？因为 <b>τ 和容量 M 互为对偶</b>——这正是 Denning 学派“变空间 vs 定空间”的经典关系：工作集策略给定 τ、让占用浮动；LRU 池给定 M、把一个等效窗口 τ<sub>eff</sub> <b>挤</b>出来，恰使平均占用 s(τ<sub>eff</sub>) ≈ M。于是这两条曲线成了<b>容量规划工具</b>：想要命中率 1 − m(τ)，查 m 曲线得到所需存活期 τ*，再查 s(τ*) 读出要为这个 session 付的内存。前篇的恒等式 m(τ) = s′(τ) 转世为：<b>miss 率 = 轮次间隔超过存活期的概率</b>。两条曲线都对第 2 节那个 session 计算：</p>
   <div class="card">
     <p class="chart-title">该 session 的平均 HBM 占用 s(τ)</p>
     <p class="chart-note">蓝点与第 2 节的 τ 滑块联动。递增趋饱和：τ 大到一定程度，多留的全是沉默期。</p>
@@ -216,7 +219,7 @@
     <div class="chart-wrap" id="mTauChart"></div>
     <details class="tbl"><summary>查看数据表</summary><div id="tauTable"></div></details>
   </div>
-  <p>膝点由<b>轮次间隔的分布</b>决定：τ 抬过常规对话节奏后 m(τ) 骤降、只剩长停顿；再往上抬，s(τ) 还在涨而 m(τ) 几乎不再降——多付的 HBM 全在给低概率的回头客和已离开的用户占座。真实系统对海量 session 的轮次间隔做同样的统计，工程形态就是 KV cache 的 TTL 该定多大。</p>
+  <p>膝点由<b>轮次间隔的分布</b>决定：τ 抬过常规对话节奏后 m(τ) 骤降、只剩长停顿；再往上抬，s(τ) 还在涨而 m(τ) 几乎不再降——多付的 HBM 全在给低概率的回头客和已离开的用户占座。真实系统对海量 session 的轮次间隔做同样的统计，用途是<b>规划 M</b>：要让典型 session 的存活期越过膝点，池子该配多大。（显式的 TTL 参数确实存在，但出现在多级缓存与外部 KV 存储的配额上，不是单机池子的主策略。）</p>
 </section>
 
 <section id="cost">
@@ -235,42 +238,40 @@
 
 <section id="pool">
   <div class="kicker">概念二的前奏</div>
-  <h2>5. 把 9 个 session 放进同一块 HBM：需求 vs 容量</h2>
-  <p>单个 session 的账已经算清：τ 定多大（第 3 节）、miss 多贵（第 4 节），都不需要别人出场。现在才轮到总账。<b>总工作集</b> <em class="v">W</em>(<em class="v">t</em>, <em class="v">τ</em>) = 最近 τ 秒内说过话的所有 session 的前缀之<b>并</b>，所需 HBM = 它们的 context 之和。下面是 9 个 session、200 秒的模拟轨迹，上下两张图共用时间轴。先声明：<b>这张图刻意不含任何置换策略</b>——它只画需求与容量的关系，回答 Denning 的条件 Σ|W<sub>i</sub>| ≤ M 有没有被破坏；红区里到底谁踩谁、抢占怎么连锁成雪崩，是第 6 节模拟的主题。<b>读图前先记住四件事——尤其是第三件：</b></p>
+  <h2>5. 把 9 个 session 放进一个 LRU 池</h2>
+  <p>单个 session 的账已经算清，现在把 9 个放进同一块 HBM。<b>池子的规则只有一条</b>（这就是 vLLM / SGLang 的真实行为）：<b>块进来就留下，没有过期时间；只有当新的分配需要空间时，才从“最久没说话”的 session 的尾部开始逐出。</b>驱逐的因是容量，不是时钟——其余一切都是这条规则的后果。<b>读图前先记住四件事：</b></p>
   <div class="defbox">
-    <p><b>① 上图的一个点 = 一轮输入的到达。</b>它标记的是“这个 session 在这个时刻说了句话”，<b>不是</b>内存块。KV block 在下图里：一个 session 那条横带的<b>厚度</b>，才是它全部前缀 KV 的量。</p>
-    <p><b>② 窗口 = “最近 τ 秒”这个时间段</b>——蓝色竖带，右边缘是当前时刻 t，宽度是 τ。与前篇是同一个概念，只是单位从“最近 τ 次访存”换成了“最近 τ 秒”。</p>
-    <p><b>③ 窗口筛的是 session，不是块。</b>一行里只要有<b>至少一个</b>点落进窗口，这个 session 就算活跃（整行高亮）→ 它的<b>全部</b>前缀 KV 必须驻留 → 下图当前时刻竖线上的蓝色剖面，就是此刻驻留的各个 session 各占多厚（挤到容量线 M 之上的部分变红）。前篇的窗口是逐页筛选的；这里一旦选中就是全量驻留——因为 attention 需要完整前缀。</p>
-    <p><b>④ τ 管的是“沉默期间留不留”，不是“算的时候给不给”。</b>计算某一轮的那一刻，KV 必须全量在 HBM——谁也省不掉，所以每个点到来的瞬间，它的带子一定出现在堆里。τ 决定的是这轮算完之后、下一轮到来之前，这块内存要不要继续占着。把 τ 拉小试试：带子在每轮之后很快消失，HBM 省了，但沉默超过 τ 的回头轮次要付全量重算（内存照样临时全量分配，只是内容得现算，成本贵 R 倍，见第 4 节）；τ→0 就是“算完即丢”，每轮冷启动。<b>留 = 用 HBM 换掉未来的重算；丢 = 用未来的重算换出 HBM</b>，τ 是这笔投资的持有期。</p>
+    <p><b>① 上图的一个点 = 一轮输入的到达</b>，不是内存块。<b>蓝点 = 命中</b>：它的历史块全在池中，这一轮只算新增的一小截；<b>红点 = 被挤过</b>：沉默期间历史被别人挤掉了一部分或全部，这一轮要先重算缺失的前缀（第 4 节的 R 倍账单）。</p>
+    <p><b>② 没有窗口了。</b>块不会自己过期，只会被新需求挤出去。高亮的行 = 此刻在池中还有块的 session——包括已经死了但还没被挤掉的。</p>
+    <p><b>③ 下图的堆叠 = 各 session 实际驻留的块，总和永远不超过容量 M。</b>虚线阶梯是“如果内存无限、本可以全部缓存”的总量；虚线与堆顶之间的浅红楔子 = <b>已被挤出的块</b>——谁回来谁付重算。挤占就发生在带子被削顶的那些瞬间：别人一说话，最老 session 的尾巴被当场吃掉。</p>
+    <p><b>④ 等效窗口 τ<sub>eff</sub> 是被挤出来的读数</b>：池中最老的完整幸存者闲置了多久。M 越小、说话的人越多，τ<sub>eff</sub> 被压得越短；当它短于典型轮次间隔（本例 8–12 秒），几乎每个回头轮都变红——那就是雪崩的定义（第 6 节）。</p>
   </div>
-  <p><b>下图把 y 轴换成 HBM 本身</b>：窗内每个 session 是一条堆叠的横带，厚度 = 它的 context（随轮次增厚）；沉默超过 τ，整条带子从堆里抽走。水平线是容量 M——堆顶捅破 M 的部分涂红，<b>那就是雪崩区，是你自己用滑块拖出来的</b>：</p>
 
   <div class="card">
     <div class="controls">
       <button class="play" id="playBtn">▶ 播放</button>
       <label>时刻 <em class="v">t</em><input type="range" id="tSlider" min="0" max="200" value="100"><output id="tOut">100</output></label>
-      <label>窗口 <em class="v">τ</em><input type="range" id="tauSlider" min="5" max="60" value="25"><output id="tauOut">25</output>s</label>
-      <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="50" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
+      <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="80" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
     </div>
-    <p class="chart-title">轮次到达（每行一个 session，点 = 一轮输入到达，不是内存块）</p>
-    <p class="chart-note">活跃与否只看窗内<b>有没有</b>点（≥1 个即活跃、整行高亮），不看有几个。红点 = 该轮到达时与上一轮的间隔已超过 τ（或首轮），要全量重算——把 τ 调小，需求虽然降了，红点却会冒得到处都是：省下的 HBM 是用这些红点付的账。</p>
+    <p class="chart-title">轮次到达（每行一个 session；蓝点 = 命中，红点 = 历史被挤过、需重算）</p>
+    <p class="chart-note">红蓝是整段模拟的结果，只随 M 变化：M 拉大，红点变少；M 拉小，挤占提前、红点蔓延。</p>
     <div class="chart-wrap" id="arrivalPlot"></div>
-    <p class="chart-title">HBM 占用：窗内 session 的 KV 堆叠（单位：千 token）</p>
-    <p class="chart-note">带子厚度 = 该 session 的 context；沉默超过 τ 整条抽走。红色 = 需求超出容量 M 的部分——此时无论用什么置换算法，都必有活跃 session 的前缀不完整。</p>
+    <p class="chart-title">LRU 池：各 session 实际驻留的块（堆叠，总和 ≤ M；单位：千 token）</p>
+    <p class="chart-note">虚线阶梯 = 若内存无限本可缓存的总量；虚线与堆顶之间的浅红区 = 已被挤出的块。注意死掉的 session（会话 2、9）的带子也会一直赖到被挤才走。</p>
     <div class="chart-wrap" id="stackPlot"></div>
-    <p class="readout">t = <code id="roT"></code>　窗内 session <code id="roK"></code>　需求 Σc = <code id="roSum"></code>　容量 M = <code id="roM"></code>　<span id="roStatus"></span></p>
+    <p class="readout">t = <code id="roT"></code>　池中 session <code id="roK"></code>　已用 <code id="roUsed"></code> / 容量 <code id="roM"></code>　已挤出 <code id="roDebt"></code>　等效窗口 τ<sub>eff</sub> <code id="roTeff"></code></p>
   </div>
 
   <p>值得盯着看的三个现象：</p>
-  <p><b>① 会话 2 在 46 秒后永远沉默</b>——用户关掉了网页。但系统看到的和一次长停顿一模一样：<b>死亡是不可观测的</b>。前篇里旧页面会随局部性阶段切换自然滑出窗口；这里没有阶段切换，唯一的“自然过期”就是沉默超过 τ。窗口机制从一种优化手段变成了逻辑上的必需品。</p>
-  <p><b>② 会话 3 停顿 60 秒后回来了</b>——τ 小于停顿时长时它已被逐出，回来那一轮要全量重算。τ 的两难和前篇完全平行：太小误杀还会回来的 session，太大让死人占着 HBM。</p>
-  <p><b>③ 带子只增不减。</b>单个 session 活着时 context 单调增长（没有收缩机制），所以同样的并发数下，抖动压力随 session 年龄悄悄上升——负载没变，系统也会滑向红区。</p>
+  <p><b>① 死人不会自己走。</b>会话 2 在 46 秒后永远沉默（用户关了网页），但它的带子一直赖在池里——LRU 不清理死人，只是在需要空间时<b>优先</b>吃掉最久没说话的。死亡不可观测，而 LRU 赌的恰恰是“最老的最可能已经死了”：逐出死人零代价，这是它赌对的部分；误伤长停顿的活人（会话 3），是它赌输的部分。</p>
+  <p><b>② 挤占有清晰的因果链。</b>盯住会话 3：它停顿的 61 秒里，如果池子饱和过，它的带子会被后来者一口口削掉；等它回来，那个点就是红的——<b>别人说话 → 它被逐 → 它回来 → 它付账</b>。把 M 拉大到需求线之上，同一个点变蓝：miss 从来不是它自己的错，是容量的错。</p>
+  <p><b>③ 压力自己会涨。</b>带子只增不减（context 单调增长），所以 session 数量不变、节奏不变，虚线需求也在爬坡——运行得越久，τ<sub>eff</sub> 被压得越短。负载恒定的系统也会自己滑向雪崩，这是和前篇最隐蔽的差别。</p>
 </section>
 
 <section id="cliff">
   <div class="kicker">概念二的转世</div>
   <h2>6. 雪崩线：HBM、session 数与 context 的三角关系</h2>
-  <p>现在把 N 个 session 放进同一块 HBM。每个 session 平均 context 为 <em class="v">c̄</em>，每轮新增 δ = 0.5k token。总需求 N·c̄ ≤ M 时人人全命中；一旦超过，块级 LRU 会遭遇缓存理论里的经典病理——<b>循环扫描略大于缓存的集合，命中率不是缓降而是阶跃归零</b>（每个 session 每轮全扫自己的前缀，回来时自己的块恰好是最旧的，刚好被挤光；数据库 buffer pool 的 scan thrashing 同款）。前篇的悬崖需要一个教学用的幂指数，这里的悬崖是结构性的，位置就在：</p>
+  <p>第 5 节的池子只有 9 个 session，τ<sub>eff</sub> 只是被压短；现在把负载推到极限，看它被压穿的瞬间。设 N 个 session 平均 context 为 <em class="v">c̄</em>、每轮新增 δ = 0.5k token。总需求 N·c̄ ≤ M 时人人全命中；一旦超过，LRU 池会遭遇缓存理论里的经典病理——<b>循环扫描略大于缓存的集合，命中率不是缓降而是阶跃归零</b>（每个 session 每轮全扫自己的前缀，回来时自己的块恰好是最旧的，刚好被挤光；数据库 buffer pool 的 scan thrashing 同款）。此时 τ<sub>eff</sub> 恰好被压到典型轮次间隔以下——第 5 节的读数和这里的悬崖是同一件事的两种说法。前篇的悬崖需要一个教学用的幂指数，这里的悬崖是结构性的，位置就在：</p>
   <div class="defbox"><p><b>雪崩线：M = N × c̄</b>　——HBM 越大养得起的 session 越多（线的斜率就是 c̄），跨过线即雪崩。</p></div>
   <div class="card">
     <div class="controls">
@@ -299,7 +300,7 @@
   </div>
   <p>比前篇更险恶的一点：雪崩发生时 <b>GPU 利用率是 100%</b>。OS 抖动的体征是 CPU 空转、磁盘狂响，一眼可诊断；KV 雪崩时监控面板一片健康——GPU 在满负荷地重算历史。必须换指标才能看见它：goodput、cache 命中率、TTFT，缺一不可。</p>
   <div class="warnbox">
-    <p><b>正反馈螺旋的现代转世：重试风暴。</b>Denning 的螺旋是"CPU 空闲 → 调度器放入更多进程"；这里的版本更凶：雪崩 → TTFT 暴涨 → 客户端超时<b>重试</b> → 同一个长 prefill 被提交两遍 → 需求进一步过载。1968 年那个火上浇油的调度器，今天叫超时重试策略。</p>
+    <p><b>正反馈不需要任何人犯错，有两条自动回路。</b>Denning 的螺旋靠调度器误判（“CPU 空闲 → 多放进程”）；这里的版本是全自动的：① <b>Little 定律堆积</b>——每轮变慢 → 在途请求滞留 → 同时驻留的 session 变多 → 池子更挤 → 更慢；② <b>重试风暴</b>——TTFT 超时 → 客户端重发 → 同一个长 prefill 提交两遍 → 需求进一步过载。1968 年那个火上浇油的调度器，今天叫 Little 定律加超时重试。</p>
   </div>
 </section>
 
@@ -308,7 +309,7 @@
   <h2>7. 药方：还是工作集原理，但形态变了</h2>
   <p>前篇的药方是一句话：Σ|W<sub>i</sub>| ≤ M，装不下就整体挂起。转世到 KV cache，它裂解成一组互相配合的机制：</p>
   <div class="takeaways">
-    <div class="card"><b>用 τ 管理保留（本页第 2、3 节）</b><p>沉默超过 τ 的 session 整体让位——既是逐出策略也是死亡推断。τ 对着轮次间隔分布的膝点选，工程形态就是 KV cache 的 TTL。</p></div>
+    <div class="card"><b>把 τ<sub>eff</sub> 当读数，把 M 和准入当旋钮</b><p>单机池子里没人设置 τ——LRU 把它挤成 τ<sub>eff</sub>。真正的决策是容量规划（第 3 节的对偶曲线：让典型 session 的存活期越过膝点）和下面的准入控制；显式 TTL 只出现在多级缓存与外部 KV 存储的配额上。</p></div>
     <div class="card"><b>Session 粒度逐出，尾部优先</b><p>要让位就整条带子抽走（或从尾部截断），绝不从中间挖洞、绝不让新 session 零敲碎打地踩别人的前缀——那是雪崩的引信。</p></div>
     <div class="card"><b>门口准入，而非池内互踩</b><p>需求过线时，宁可让新轮次排队/限流（付延迟），也不放进来触发全池重算（付吞吐）。vLLM 的调度器不见 block 不排批、满池时整序列 preempt（recompute 或 swap 二选一——正是"重算 vs 换页"），都是这个原则。</p></div>
     <div class="card"><b>亲和路由：别弄丢工作集</b><p>多个 prefill 节点时，把 session 路由回持有其缓存的节点（对应 OS 的进程迁移代价）。SGLang 的 radix tree 前缀共享、Mooncake 的 KVCache 中心调度，都是把"工作集在哪"当成一等公民的调度。</p></div>
@@ -321,7 +322,7 @@
   <h2>8. 像与不像：六个本质差异</h2>
   <div class="takeaways">
     <div class="card"><b>① 局部性的单位变了</b><p>页 → session 前缀。session 内部每轮全扫历史，没有块级局部性；所有局部性都在"谁最近说过话"这个维度上。</p></div>
-    <div class="card"><b>② 工作集只增不减，死亡不可观测</b><p>进程工作集随阶段漂移；session 前缀单调生长直到无声无息地死去。τ 窗口从优化手段变成推断死亡的唯一途径。</p></div>
+    <div class="card"><b>② 工作集只增不减，死亡不可观测</b><p>进程工作集随阶段漂移；session 前缀单调生长直到无声无息地死去。逐出只能靠赌：LRU 赌最久沉默的最可能已死——赌对免费，赌错付 R 倍。</p></div>
     <div class="card"><b>③ 后备存储是"重算"</b><p>缺页读磁盘，miss 付 GPU：数据永远可再生，代价 ∝ 丢失量。KV cache 是物化视图，不是请求调页。</p></div>
     <div class="card"><b>④ 惩罚比随年龄增长</b><p>T/访存 ≈ 10⁴ 是物理常数；R = context/轮长逐轮变大。负载不变，系统也会滑向悬崖。</p></div>
     <div class="card"><b>⑤ 雪崩是隐形的</b><p>OS 抖动 CPU 空转，可见；KV 雪崩 GPU 100% 忙于无用功。诊断指标必须换成 goodput / 命中率 / TTFT。</p></div>
@@ -435,7 +436,7 @@ const SESSIONS = [
   { name: "会话 8", turns: [[125,8],[136,7],[146,8],[158,7],[176,8],[190,7]] },
   { name: "会话 9", turns: [[3,6],[11,5],[19,6],[27,5]] },
 ];
-const TMAX = 200, NS = SESSIONS.length, YMAX_KV = 400;
+const TMAX = 200, NS = SESSIONS.length, YMAX_KV = 460;
 
 function ctxAt(s, t) {            // t 时刻的 context（千 token）
   let c = 0;
@@ -450,11 +451,6 @@ function lastTurnAt(s, t) {
 function residentAt(s, t, tau) {  // 窗口 (t-τ, t] 内有轮次
   const last = lastTurnAt(s, t);
   return last > -Infinity && t - last < tau;
-}
-function demandAt(t, tau) {
-  let sum = 0, k = 0;
-  for (const s of SESSIONS) if (residentAt(s, t, tau)) { sum += ctxAt(s, t); k++; }
-  return { sum, k };
 }
 
 /* ---------- 可视化 2.1：单个 session 的两本账 ---------- */
@@ -530,12 +526,10 @@ SESSIONS.forEach((s, i) => {
   a1Rows.push(svgEl("rect", { x: A1.ml, y: a1Y(i) - a1RowH / 2, width: A1.W - A1.ml - A1.mr, height: a1RowH, class: "ws-rowband" }, a1Svg));
   svgEl("text", { x: A1.ml - 10, y: a1Y(i) + 4, "text-anchor": "end", class: "ticktext" }, a1Svg).textContent = s.name;
 });
-const a1Win = svgEl("rect", { y: A1.mt - 4, height: A1.H - A1.mt - A1.mb + 8, rx: 4, class: "win-band" }, a1Svg);
 const a1Edge = svgEl("line", { y1: A1.mt - 4, y2: A1.H - A1.mb + 4, class: "win-edge" }, a1Svg);
 const a1Dots = [];
 SESSIONS.forEach((s, i) => s.turns.forEach(([u], k) => {
-  const gap = k === 0 ? Infinity : u - s.turns[k - 1][0];
-  a1Dots.push({ si: i, u, gap, el: svgEl("circle", { cx: a1X(u), cy: a1Y(i), r: 3, class: "ref-dot" }, a1Svg) });
+  a1Dots.push({ si: i, u, k, el: svgEl("circle", { cx: a1X(u), cy: a1Y(i), r: 3, class: "ref-dot" }, a1Svg) });
 }));
 svgEl("text", { x: a1X(52), y: a1Y(1) + 4, class: "anno" }, a1Svg).textContent = "← 用户已离开——但系统无法区分离开与停顿";
 svgEl("text", { x: a1X(60), y: a1Y(2) + 4, class: "anno" }, a1Svg).textContent = "← 停顿 61 秒后回来";
@@ -566,22 +560,50 @@ svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(0), y2: a2Y(0), class: "axi
 svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, a2Svg).textContent = "时间（秒，示意）";
 svgEl("text", { x: A2.ml - 40, y: 12, class: "axtext" }, a2Svg).textContent = "千 token";
 
-function buildStack(tau) {
-  /* 每个整数时刻：各 session 的 [bottom, top]（若驻留） */
-  const layers = SESSIONS.map(() => new Array(TMAX + 1).fill(null));
-  const totals = new Array(TMAX + 1).fill(0);
+function simulatePool(M) {
+  /* 事件驱动的 LRU 池：块只在需要空间时被逐出，从最久没说话的 session 的尾部开始 */
+  const events = [];
+  SESSIONS.forEach((s, i) => s.turns.forEach(([u, d], k) => events.push({ u, i, k, d })));
+  events.sort((a, b) => a.u - b.u);
+  const resident = SESSIONS.map(() => 0);   // 各 session 当前驻留的块（千 token）
+  const ctxNow = SESSIONS.map(() => 0);
+  const lastTurn = SESSIONS.map(() => -1);
+  const recompPerTurn = SESSIONS.map(s => s.turns.map(() => 0));
+  const snaps = [], demandArr = [], usedArr = [], teffArr = [];
+  let ei = 0, demand = 0;
   for (let t = 0; t <= TMAX; t++) {
-    let base = 0;
-    SESSIONS.forEach((s, i) => {
-      if (residentAt(s, t, tau)) {
-        const c = ctxAt(s, t);
-        layers[i][t] = [base, base + c];
-        base += c;
+    while (ei < events.length && events[ei].u <= t) {
+      const { i, k, d } = events[ei];
+      const cNew = ctxNow[i] + d;
+      demand += d;
+      recompPerTurn[i][k] = Math.max(0, ctxNow[i] - resident[i]);  // 缺失的历史 → 重算量
+      let free = M - resident.reduce((a, b) => a + b, 0);
+      const need = Math.min(cNew, M) - resident[i];
+      if (need > free) {
+        const order = SESSIONS.map((_, j) => j).filter(j => j !== i && resident[j] > 0)
+          .sort((a, b) => lastTurn[a] - lastTurn[b]);          // 最久没说话的先被吃
+        for (const j of order) {
+          if (need <= free) break;
+          const take = Math.min(resident[j], need - free);      // 尾部截断
+          resident[j] -= take; free += take;
+        }
       }
+      resident[i] = Math.min(cNew, M);
+      ctxNow[i] = cNew; lastTurn[i] = events[ei].u;
+      ei++;
+    }
+    snaps.push(resident.slice());
+    demandArr.push(demand);
+    usedArr.push(resident.reduce((a, b) => a + b, 0));
+    let teff = null, pressured = false;
+    SESSIONS.forEach((s, j) => {
+      if (lastTurn[j] < 0) return;
+      if (resident[j] >= ctxNow[j] && ctxNow[j] > 0) teff = Math.max(teff ?? 0, t - lastTurn[j]);
+      if (resident[j] < ctxNow[j]) pressured = true;
     });
-    totals[t] = base;
+    teffArr.push({ teff, pressured });
   }
-  return { layers, totals };
+  return { snaps, demandArr, usedArr, teffArr, recompPerTurn };
 }
 function pathFromRun(arr, t0, t1, xf, yf) {
   /* arr[t] = [bottom, top]；生成 t0..t1 的阶梯多边形 */
@@ -591,11 +613,21 @@ function pathFromRun(arr, t0, t1, xf, yf) {
   for (let t = t1 - 1; t >= t0; t--) d += `L${xf(t + 1)},${yf(arr[t][0])}L${xf(t)},${yf(arr[t][0])}`;
   return d + "Z";
 }
-let stackCache = null;
-function redrawStack(tau, M) {
-  stackCache = buildStack(tau);
+let poolCache = null;
+function redrawPool(M) {
+  poolCache = simulatePool(M);
   bandGroup.innerHTML = ""; overGroup.innerHTML = "";
-  stackCache.layers.forEach((arr, i) => {
+  /* 堆叠层 */
+  const layers = SESSIONS.map(() => new Array(TMAX + 1).fill(null));
+  for (let t = 0; t <= TMAX; t++) {
+    let base = 0;
+    SESSIONS.forEach((s, i) => {
+      const r = poolCache.snaps[t][i];
+      if (r > 0.01) { layers[i][t] = [base, base + r]; base += r; }
+    });
+  }
+  poolCache.layers = layers;
+  layers.forEach((arr, i) => {
     let t0 = null;
     for (let t = 0; t <= TMAX + 1; t++) {
       const on = t <= TMAX && arr[t] !== null;
@@ -604,73 +636,69 @@ function redrawStack(tau, M) {
         const t1 = t - 1;
         if (t1 > t0) {
           const p = svgEl("path", { d: pathFromRun(arr, t0, t1, a2X, a2Y), class: "kv-band" }, bandGroup);
-          const tit = svgEl("title", {}, p);
-          tit.textContent = SESSIONS[i].name;
+          svgEl("title", {}, p).textContent = SESSIONS[i].name;
         }
         t0 = null;
       }
     }
   });
-  /* 超出 M 的部分 */
-  const tot = stackCache.totals;
+  /* 已被挤出的楔子：无限内存需求 与 实际驻留 之间 */
+  const dem = poolCache.demandArr.map(v => Math.min(v, YMAX_KV)), used = poolCache.usedArr;
   let t0 = null;
   for (let t = 0; t <= TMAX + 1; t++) {
-    const on = t <= TMAX && tot[t] > M;
+    const on = t <= TMAX && dem[t] > used[t] + 0.01;
     if (on && t0 === null) t0 = t;
     if (!on && t0 !== null) {
       const t1 = t - 1;
-      if (t1 >= t0) {
-        const seg = tot.map(v => [M, Math.max(v, M)]);
-        svgEl("path", { d: pathFromRun(seg, Math.max(0, t0 - 1), Math.min(TMAX, t1 + 1), a2X, a2Y), class: "kv-over" }, overGroup);
+      if (t1 > t0) {
+        const seg = dem.map((v, x) => [used[x], Math.max(v, used[x])]);
+        svgEl("path", { d: pathFromRun(seg, t0, t1, a2X, a2Y), class: "kv-debt" }, overGroup);
       }
       t0 = null;
     }
   }
+  /* 无限内存需求：虚线阶梯 */
+  let d = `M${a2X(0)},${a2Y(dem[0])}`;
+  for (let t = 1; t <= TMAX; t++) d += `L${a2X(t)},${a2Y(dem[t - 1])}L${a2X(t)},${a2Y(dem[t])}`;
+  svgEl("path", { d, class: "demand-line" }, overGroup);
   capLine.setAttribute("y1", a2Y(M)); capLine.setAttribute("y2", a2Y(M));
   capText.setAttribute("y", a2Y(M) - 6);
   capText.textContent = `HBM 容量 M = ${M}k`;
 }
 
 /* ---------- 可视化 A 的状态 ---------- */
-const tSlider = document.getElementById("tSlider"), tauSlider = document.getElementById("tauSlider"), mSlider = document.getElementById("mSlider");
-const tOut = document.getElementById("tOut"), tauOut = document.getElementById("tauOut"), mOut = document.getElementById("mOut");
-let curT = +tSlider.value, curTau = +tauSlider.value, curM = +mSlider.value;
+const tSlider = document.getElementById("tSlider"), mSlider = document.getElementById("mSlider");
+const tOut = document.getElementById("tOut"), mOut = document.getElementById("mOut");
+let curT = +tSlider.value, curM = +mSlider.value;
 
 function updateVizA(structChanged) {
-  if (structChanged) redrawStack(curTau, curM);
-  tOut.textContent = curT; tauOut.textContent = curTau; mOut.textContent = curM;
-  a1Win.setAttribute("x", a1X(Math.max(0, curT - curTau)));
-  a1Win.setAttribute("width", a1X(curT) - a1X(Math.max(0, curT - curTau)));
+  if (structChanged) redrawPool(curM);
+  tOut.textContent = curT; mOut.textContent = curM;
   a1Edge.setAttribute("x1", a1X(curT)); a1Edge.setAttribute("x2", a1X(curT));
   a2Now.setAttribute("x1", a2X(curT)); a2Now.setAttribute("x2", a2X(curT));
-  const inWs = SESSIONS.map(s => residentAt(s, curT, curTau));
-  a1Rows.forEach((r, i) => r.setAttribute("class", inWs[i] ? "ws-rowband on" : "ws-rowband"));
-  /* 当前时刻的剖面卡尺：窗内每个 session 此刻占用的厚度 */
+  const snap = poolCache.snaps[curT];
+  a1Rows.forEach((r, i) => r.setAttribute("class", snap[i] > 0.01 ? "ws-rowband on" : "ws-rowband"));
+  /* 当前时刻的剖面卡尺：各 session 此刻实际驻留的厚度 */
   nowGroup.innerHTML = "";
   SESSIONS.forEach((s, i) => {
-    const seg = stackCache.layers[i][curT];
-    if (!seg || !inWs[i]) return;
-    const [b, top] = seg;
-    const blueTop = Math.min(top, curM);
-    if (blueTop > b)
-      svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(blueTop), height: a2Y(b) - a2Y(blueTop), rx: 2, class: "now-seg" }, nowGroup);
-    if (top > Math.max(b, curM))
-      svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(top), height: a2Y(Math.max(b, curM)) - a2Y(top), rx: 2, class: "now-seg over" }, nowGroup);
+    const seg = poolCache.layers[i][curT];
+    if (!seg) return;
+    svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(seg[1]), height: a2Y(seg[0]) - a2Y(seg[1]), rx: 2, class: "now-seg" }, nowGroup);
   });
+  /* 红蓝点：整段模拟的命中/重算结果，只随 M 变化 */
   a1Dots.forEach(d => d.el.setAttribute("class",
-    d.gap > curTau ? "ref-dot miss"
-      : inWs[d.si] && d.u <= curT && curT - d.u < curTau ? "ref-dot inwin" : "ref-dot"));
-  const { sum, k } = demandAt(curT, curTau);
+    poolCache.recompPerTurn[d.si][d.k] > 0.01 ? "ref-dot miss" : "ref-dot hit"));
+  const used = poolCache.usedArr[curT], dem = poolCache.demandArr[curT];
+  const { teff, pressured } = poolCache.teffArr[curT];
   document.getElementById("roT").textContent = curT + "s";
-  document.getElementById("roK").textContent = k + " 个";
-  document.getElementById("roSum").textContent = sum + "k token";
+  document.getElementById("roK").textContent = snap.filter(v => v > 0.01).length + " 个";
+  document.getElementById("roUsed").textContent = Math.round(used) + "k";
   document.getElementById("roM").textContent = curM + "k";
-  document.getElementById("roStatus").innerHTML = sum <= curM
-    ? `<span class="ok">✓ 装得下</span>`
-    : `<span class="bad">⚠ 超出 ${sum - curM}k——必有 session 的前缀不完整</span>`;
+  document.getElementById("roDebt").textContent = Math.max(0, Math.round(dem - used)) + "k";
+  document.getElementById("roTeff").textContent =
+    !pressured ? "∞（尚无压力）" : teff === null ? "0s（无人完整幸存）" : "≈ " + teff + "s";
 }
 tSlider.addEventListener("input", () => { curT = +tSlider.value; stopPlay(); updateVizA(false); });
-tauSlider.addEventListener("input", () => { curTau = +tauSlider.value; updateVizA(true); });
 mSlider.addEventListener("input", () => { curM = +mSlider.value; updateVizA(true); });
 const playBtn = document.getElementById("playBtn");
 let timer = null;
