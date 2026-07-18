@@ -1,23 +1,24 @@
-# 工作集与抖动 — 可视化解读 Denning (1968)
+# 工作集与抖动：从 Denning 1968 到 LLM KV Cache
 
-一个单页交互式可视化，帮助理解 Peter Denning 1968 年两篇经典论文中的核心概念：
+两个交互式教学页面，纯静态单文件（无外部依赖，支持深色模式），部署在 GitHub Pages：
 
-- **The Working Set Model for Program Behavior**（CACM, 1968）— 工作集 W(t, τ)、程序局部性、窗口 τ 的选择
-- **Thrashing: Its Causes and Prevention**（AFIPS FJCC, 1968）— 抖动的成因（内存过度分配的正反馈崩溃）与工作集准入控制
-
-## 内容
-
-- 可拖动的页面引用串 + 滑动窗口演示，实时显示工作集内容与大小
-- 平均工作集大小 s(τ) 曲线（递增凹函数与拐点）
-- 抖动模拟器：固定 60 帧内存，拖动进程数观察 CPU 利用率的断崖式崩塌，可开启工作集准入控制对照
-
-页面为纯静态单文件（`index.html`），无外部依赖，支持深色模式。
+- **`index.html` — 工作集与抖动：看懂 Denning 的 1968**
+  页面引用串 + 滑动窗口的工作集演示、s(τ) 膝点曲线、缺页代价与生存期曲线、
+  抖动模拟器（U(N) = 1 − bᴺ，可开启工作集准入控制对照）。
+- **`kvcache.html` — KV Cache 的工作集与雪崩（续篇）**
+  围绕四个关键点：① 一个 session 的需求 = 全部前缀（一轮一行的 prefill 账单图，
+  部分尾部逐出）；② miss 代价 R ≈ context/轮长 ⇒ 99% 命中率只值 50% 效率（e–h 曲线）；
+  ③ 超线即雪崩且 GPU 利用率恒 100%（stack distance 柱图：柱高与容量无关，
+  M 只是一条可拖的线，高出线的部分 = 重算量；雪崩线 N·c̄ = M 的 goodput 悬崖）；
+  ④ 药方 = 准入控制。
+  第 2 节账单图与第 4 节柱图共用同一份 5 会话数据（会话 1 是账单主角）。
 
 ## 本地查看
 
-直接用浏览器打开 `index.html` 即可。
+直接用浏览器打开对应 HTML 即可。
 
-## 部署到 GitHub Pages
+## 部署
 
-仓库已包含 `.github/workflows/pages.yml`，推送到 `main` 分支后自动部署。
-首次使用需在仓库 **Settings → Pages** 中将 **Source** 设为 **GitHub Actions**。
+`.github/workflows/pages.yml` 在推送到 `main` 后自动部署；
+首次使用需在 Settings → Pages 将 Source 设为 GitHub Actions。
+线上地址：https://simpx.github.io/thrashing/
