@@ -19,6 +19,8 @@
     --series-1:      #2a78d6;
     --series-2:      #008300;
     --series-3:      #e87ba4;
+    --series-4:      #eda100;
+    --series-5:      #1baf7a;
     --status-critical:#d03b3b;
     --wash-1:        rgba(42,120,214,0.10);
     --band-fill:     rgba(137,135,129,0.28);
@@ -37,6 +39,8 @@
       --series-1:      #3987e5;
       --series-2:      #008300;
       --series-3:      #d55181;
+      --series-4:      #c98500;
+      --series-5:      #199e70;
       --wash-1:        rgba(57,135,229,0.14);
       --band-fill:     rgba(137,135,129,0.30);
     }
@@ -84,7 +88,6 @@
   .anno      { fill: var(--muted); font-size: 11px; font-style: italic; }
   .anno.strong { fill: var(--text-secondary); font-style: normal; font-weight: 600; }
   .anno.halo { fill: var(--text-secondary); font-size: 11px; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3.5; stroke-linejoin: round; }
-  .band-id { fill: var(--text-secondary); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3; stroke-linejoin: round; }
   .s1-line { stroke: var(--series-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s2-line { stroke: var(--series-2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s3-line { stroke: var(--series-3); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
@@ -95,13 +98,12 @@
   .seg-hit { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
   .seg-new { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
   .seg-re  { fill: var(--status-critical); opacity: .82; stroke: var(--surface-1); stroke-width: 2; }
-  .kv-band { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
   .cap-line { stroke: var(--text-secondary); stroke-width: 1.5; }
   .cap-text { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
-  .now-seg  { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 1.5; }
-  .ref-dot.hit  { fill: var(--series-1); }
-  .ref-dot.miss { fill: var(--status-critical); }
-  .win-edge { stroke: var(--series-1); stroke-width: 1.5; }
+  .d-others { fill: var(--band-fill); opacity: .55; }
+  .d-re { fill: var(--status-critical); opacity: .85; }
+  .sess-0 { fill: var(--series-1); } .sess-1 { fill: var(--series-2); } .sess-2 { fill: var(--series-3); }
+  .sess-3 { fill: var(--series-4); } .sess-4 { fill: var(--series-5); }
   .tt { position: absolute; pointer-events: none; display: none; z-index: 5; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: 7px 11px; font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; line-height: 1.6; }
   .tt b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
   .tt .key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
@@ -162,7 +164,7 @@
   <div class="defbox">
     <p><b>关键事实</b>　计算任何一轮都要对全部历史做 attention——所以一个 session 的“工作集”就是它的<b>整个前缀 KV</b>：全有或全无，逐轮只增不减。</p>
   </div>
-  <p>下面是一个 session 的 14 轮账单，每行一轮。几次长停顿期间，它的缓存被池子<b>从尾部啃掉了一部分或全部</b>（谁啃的、为什么，第 4 节见分晓）：</p>
+  <p>下面是一个会话的 14 轮账单，每行一轮——它就是第 4 节那个池子里的<b>会话 1</b>（容量 120k），两张图用同一份数据。几次长停顿期间，它的缓存被池子<b>从尾部啃掉了一部分或全部</b>：</p>
   <div class="card">
     <div class="legend"><span><span class="key" style="background:var(--band-fill);width:14px;height:8px"></span>还在 HBM 的前缀头部（免费复用）</span><span><span class="key" style="background:var(--status-critical)"></span>被啃掉的尾部（本轮重算）</span><span><span class="key k1"></span>本轮新增（必须算）</span></div>
     <p class="chart-note"><b>每行 = 一轮的 prefill 账单，彩色（红＋蓝）= 本轮实际要算的量</b>；行首括号 = 距上一轮的秒数，沉默越久被啃掉的尾巴越长。</p>
@@ -190,32 +192,33 @@
 
 <section id="pool">
   <div class="kicker">关键点三（上）</div>
-  <h2>4. 把 9 个 session 放进一个 LRU 池</h2>
-  <p>第 2 节的账单，就是从下面这张全景里抽出一个 session、把它的每个点展开成一行。池子的规则只有一条（vLLM / SGLang 的真实行为）：<b>块进来就留下；只有新的分配需要空间时，才从“最久没说话”的 session 的尾部逐出。</b></p>
+  <h2>4. 把 5 个会话放进一个 LRU 池：stack distance</h2>
+  <p>第 2 节的账单来自下面这个池子。池子的规则只有一条（vLLM / SGLang 的真实行为）：<b>块进来就留下；需要空间时，从“最久没说话”的会话尾部逐出。</b>在这条规则下，每个回头轮的命运由一个数决定：</p>
   <div class="defbox">
-    <p><b>① 一个点 = 一轮到达</b>（画在它自己 session 的带子里）：<b>蓝 = 前缀全在，免费复用；红 = 沉默期间被啃过</b>，本轮要付第 3 节的 R 倍账单。</p>
-    <p><b>② 带子 = 驻留的块，被削顶 = 正在被逐出。</b></p>
+    <p><b>Stack distance = 自上次说话以来别人垫进池子的量 + 自己的前缀。</b>柱子低于容量线 M → 前缀全在，免费复用；<b>柱子高出 M 的部分（变红）= 这一轮要重算的量</b>，最多红到整个前缀。</p>
+    <p>柱高与 M 无关——<b>拖动 M，命中与重算实时翻转，柱子永远不动</b>：一张图回答所有容量。</p>
   </div>
-
   <div class="card">
     <div class="controls">
-      <button class="play" id="playBtn">▶ 播放</button>
-      <label>时刻 <em class="v">t</em><input type="range" id="tSlider" min="0" max="200" value="100"><output id="tOut">100</output></label>
-      <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="80" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
+      <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="60" max="240" step="10" value="120"><output id="mOut">120</output>k</label>
     </div>
-    <p class="chart-title">LRU 池全景</p>
-    <p class="chart-note">带上的数字 = 会话编号；悬停带子与点可看明细。</p>
-    <div class="chart-wrap" id="stackPlot"></div>
-    <p class="readout">t = <code id="roT"></code>　池中 session <code id="roK"></code>　已用 <code id="roUsed"></code> / 容量 <code id="roM"></code></p>
+    <div class="legend"><span><span class="key" style="background:var(--series-1);height:8px"></span>会话 1</span><span><span class="key" style="background:var(--series-2);height:8px"></span>会话 2</span><span><span class="key" style="background:var(--series-3);height:8px"></span>会话 3</span><span><span class="key" style="background:var(--series-4);height:8px"></span>会话 4</span><span><span class="key" style="background:var(--series-5);height:8px"></span>会话 5</span></div>
+    <p class="chart-title">每个回头轮的 stack distance（按到达顺序）</p>
+    <p class="chart-note">柱底灰段 = 沉默期间别人垫进来的量；顶段彩色 = 自己的前缀（颜色与柱下数字 = 会话编号）。各会话的首轮是冷启动，不画。</p>
+    <div class="chart-wrap" id="distPlot"></div>
+    <div class="tiles">
+      <div class="tile"><div class="tl">超线的回头轮</div><div class="tv" id="distMiss">—</div><div class="td" id="distMissd"></div></div>
+      <div class="tile"><div class="tl">重算合计</div><div class="tv" id="distRe">—</div><div class="td">柱子高出 M 的红色总量</div></div>
+      <div class="tile"><div class="tl">池子 goodput</div><div class="tv" id="distGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
+    </div>
   </div>
-
-  <p>两件值得盯着看的事：<b>会话 2 死了，但它的带子赖到被挤才走</b>——LRU 赌“最老的最可能已死”，赌对免费、赌错付 R 倍；<b>会话 3 停顿 61 秒回来付了全额账单</b>——把 M 拉大，同一个点变蓝：miss 是容量的错，不是它的错。</p>
+  <p>两件值得盯着看的事：<b>会话 1 的三根超线柱，正是第 2 节账单里的三段红色</b>（+34s / +36s / +19s → 被啃 10k / 33k / 18k，同一份数据）；<b>把 M 拉到顶，红色全部消失；压到底，几乎每个回头轮都在重算</b>——那就是下一节悬崖的前奏。</p>
 </section>
 
 <section id="cliff">
   <div class="kicker">关键点三（下）</div>
   <h2>5. 雪崩线：跨过去就是断崖</h2>
-  <p>上一节的池子只有 9 个 session；现在把负载推到极限。设 N 个 session 平均 context 为 <em class="v">c̄</em>、每轮新增 0.5k token。总需求不超容量时人人全命中；一旦超过，<b>命中率不是缓降而是阶跃归零</b>——每个 session 每轮全扫自己的前缀，回来时自己的块恰好最旧、刚好被挤光。悬崖的位置就在：</p>
+  <p>上一节的池子只有 5 个会话；现在把负载推到极限。设 N 个 session 平均 context 为 <em class="v">c̄</em>、每轮新增 0.5k token。总需求不超容量时人人全命中；一旦超过，<b>命中率不是缓降而是阶跃归零</b>——每个 session 每轮全扫自己的前缀，回来时自己的块恰好最旧、刚好被挤光。悬崖的位置就在：</p>
   <div class="defbox"><p><b>雪崩线：N × c̄ = M（即 Σcontext = M）</b>　——HBM 越大养得起的 session 越多，跨过线即雪崩。</p></div>
   <div class="card">
     <div class="controls">
@@ -341,15 +344,51 @@ function lineChart(root, cfg) {
   return chart;
 }
 
-/* ================= 第 2 节：一轮一行的账单（静态示例） ================= */
-/* [到达秒, 新增千 token, 沉默期间被池子从尾部啃掉的量(千 token)] */
-const SOLO_TURNS = [[5,4,0],[14,3,0],[24,4,0],[33,3,0],[41,4,0],[75,5,10],[84,3,0],[95,4,0],[104,3,0],[140,5,33],[150,3,0],[159,4,0],[171,3,0],[190,4,18]];
-const SOLO_N = SOLO_TURNS.length;
-const SOLO_CUMS = (() => { const a = []; let c = 0; for (const [, d] of SOLO_TURNS) { c += d; a.push(c); } return a; })();
+/* ================= 共享数据：5 个会话，会话 1 是第 2 节的主角 ================= */
+/* turns: [到达秒, 本轮新增千 token] */
+const SESSIONS = [
+  { name: "会话 1", turns: [[5,4],[14,3],[24,4],[33,3],[41,4],[75,5],[84,3],[95,4],[104,3],[140,5],[150,3],[159,4],[171,3],[190,4]] },
+  { name: "会话 2", turns: [[8,30],[50,26],[100,16],[138,14],[196,12]] },
+  { name: "会话 3", turns: [[20,7],[45,7],[70,6],[110,6],[135,6],[175,12]] },
+  { name: "会话 4", turns: [[10,12],[28,12],[55,12]] },
+  { name: "会话 5", turns: [[90,10],[115,10],[130,10],[155,8],[180,8]] },
+];
+const M0 = 120;                                  /* 第 2 节账单采用的容量 */
+function ctxAt(si, u) { let c = 0; for (const [t, d] of SESSIONS[si].turns) if (t <= u) c += d; return c; }
+/* 所有回头轮的 stack distance（与容量无关，一次算好） */
+const RETURNS = (() => {
+  const evs = [];
+  SESSIONS.forEach((sn, si) => sn.turns.forEach(([u, d], k) => evs.push({ si, k, u, d })));
+  evs.sort((a, b) => a.u - b.u);
+  const out = [];
+  for (const e of evs) {
+    if (e.k === 0) continue;
+    const prevU = SESSIONS[e.si].turns[e.k - 1][0];
+    const prev = ctxAt(e.si, prevU);
+    let others = 0;
+    SESSIONS.forEach((sn, j) => {
+      if (j === e.si) return;
+      if (sn.turns.some(([t]) => t > prevU && t <= e.u)) others += ctxAt(j, e.u);
+    });
+    out.push({ ...e, prev, others, dist: prev + others });
+  }
+  return out;
+})();
+const recompAt = (r, M) => clamp(r.dist - M, 0, r.prev);
+const TOTAL_NEW = SESSIONS.reduce((a, sn) => a + sn.turns.reduce((b, [, d]) => b + d, 0), 0);
+
+/* ================= 第 2 节：会话 1 的账单（M = M0 时，由上面数据推导） ================= */
 {
+  const T = SESSIONS[0].turns, N = T.length;
+  const cums = []; let c = 0; for (const [, d] of T) { c += d; cums.push(c); }
+  const rec = T.map((_, k) => {
+    if (!k) return 0;
+    const r = RETURNS.find(r => r.si === 0 && r.k === k);
+    return recompAt(r, M0);
+  });
   const W = 860, H = 356, ml = 118, mr = 16, mt = 14, mb = 40, xmax = 55;
   const X = v => ml + v / xmax * (W - ml - mr);
-  const rowH = (H - mt - mb) / SOLO_N;
+  const rowH = (H - mt - mb) / N;
   const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": "一轮一行的 prefill 账单" }, null);
   document.getElementById("soloPlot").appendChild(svg);
   [0, 10, 20, 30, 40, 50].forEach(v => {
@@ -361,28 +400,28 @@ const SOLO_CUMS = (() => { const a = []; let c = 0; for (const [, d] of SOLO_TUR
     .textContent = "这一轮 prefill 的 context（千 token）——左端是最早的历史，右端是本轮新增";
   const barH = Math.max(8, rowH - 6);
   let totalCost = 0, totalNew = 0, waste = 0;
-  SOLO_TURNS.forEach(([u, d, recomp], k) => {
-    const gap = k ? u - SOLO_TURNS[k - 1][0] : null;
+  T.forEach(([u, d], k) => {
+    const gap = k ? u - T[k - 1][0] : null;
     svgEl("text", { x: ml - 10, y: mt + k * rowH + rowH / 2 + 3.5, "text-anchor": "end", class: "ticktext" }, svg)
       .textContent = `轮 ${k + 1}` + (gap !== null ? `（+${gap}s）` : `（t=${u}s）`);
-    const prev = k ? SOLO_CUMS[k - 1] : 0;
-    const kept = prev - recomp;                    /* 保住的前缀头部 */
-    totalCost += d + recomp; totalNew += d; waste += recomp;
+    const prev = k ? cums[k - 1] : 0;
+    const kept = prev - rec[k];
+    totalCost += d + rec[k]; totalNew += d; waste += rec[k];
     const y = mt + k * rowH + (rowH - barH) / 2;
     if (kept > 0) {
       const pr = svgEl("rect", { x: X(0), width: X(kept) - X(0), y, height: barH, class: "seg-hit" }, svg);
       svgEl("title", {}, pr).textContent = `轮 ${k + 1}：前缀头部 ${kept}k 还在 HBM → 免费复用`;
     }
-    if (recomp > 0) {
+    if (rec[k] > 0) {
       const re = svgEl("rect", { x: X(kept), width: X(prev) - X(kept), y, height: barH, class: "seg-re" }, svg);
-      svgEl("title", {}, re).textContent = `轮 ${k + 1}：沉默 ${gap}s 期间尾部 ${recomp}k 被池子啃掉 → 本轮重算`;
+      svgEl("title", {}, re).textContent = `轮 ${k + 1}：沉默 ${gap}s 期间尾部 ${rec[k]}k 被池子啃掉 → 本轮重算`;
     }
-    const nw = svgEl("rect", { x: X(prev), width: X(SOLO_CUMS[k]) - X(prev), y, height: barH, class: "seg-new" }, svg);
+    const nw = svgEl("rect", { x: X(prev), width: X(cums[k]) - X(prev), y, height: barH, class: "seg-new" }, svg);
     svgEl("title", {}, nw).textContent = `轮 ${k + 1}：本轮新增 ${d}k（无论如何都要算）`;
   });
   const anno = (k, label) =>
-    svgEl("text", { x: X(SOLO_CUMS[k]) + 8, y: mt + k * rowH + rowH / 2 + 3.5, class: "anno strong" }, svg).textContent = label;
-  anno(5, "← 沉默 34s：尾部被啃掉 10k，补红色");
+    svgEl("text", { x: X(cums[k]) + 8, y: mt + k * rowH + rowH / 2 + 3.5, class: "anno strong" }, svg).textContent = label;
+  anno(5, `← 沉默 34s：尾部被啃掉 ${rec[5]}k，补红色`);
   anno(9, "← 沉默 36s：挤光了，全额重算");
   document.getElementById("soloCost").textContent = totalCost + "k";
   document.getElementById("soloWaste").textContent = `其中重算浪费 ${waste}k（新 token 共 ${totalNew}k）`;
@@ -413,187 +452,68 @@ document.getElementById("ehTable").innerHTML =
       `<td>${(100 / (1 + (1 - h / 100) * r)).toFixed(1)}%</td>`).join("") + "</tr>").join("") +
   "</table>";
 
-/* ================= 第 4 节：LRU 池全景 ================= */
-/* turns: [时刻(秒), 本轮新增 token 数(千)] */
-const SESSIONS = [
-  { name: "会话 1", turns: [[5,8],[15,6],[24,5],[40,7],[52,6],[70,5],[85,6],[100,5],[118,6],[135,5],[152,6],[170,5],[186,5]] },
-  { name: "会话 2", turns: [[2,10],[12,8],[22,6],[34,7],[46,8]] },
-  { name: "会话 3", turns: [[18,4],[26,5],[34,4],[95,6],[104,5],[112,4],[121,5]] },
-  { name: "会话 4", turns: [[40,25],[62,20],[90,18],[130,15],[165,12]] },
-  { name: "会话 5", turns: [[55,5],[63,4],[71,5],[79,4],[88,5],[96,4],[105,5]] },
-  { name: "会话 6", turns: [[75,12],[92,10],[110,9],[128,10],[148,9],[168,10],[188,9]] },
-  { name: "会话 7", turns: [[98,6],[106,5],[115,6],[124,5],[160,7],[172,6],[184,5]] },
-  { name: "会话 8", turns: [[125,8],[136,7],[146,8],[158,7],[176,8],[190,7]] },
-  { name: "会话 9", turns: [[3,6],[11,5],[19,6],[27,5]] },
-];
-const TMAX = 200, YMAX_KV = 460;
-
-
-function simulatePool(M) {
-  /* 事件驱动 LRU：只在需要空间时，从最久没说话的 session 尾部逐出 */
-  const events = [];
-  SESSIONS.forEach((s, i) => s.turns.forEach(([u, d], k) => events.push({ u, i, k, d })));
-  events.sort((a, b) => a.u - b.u);
-  const resident = SESSIONS.map(() => 0);
-  const ctxNow = SESSIONS.map(() => 0);
-  const lastTurn = SESSIONS.map(() => -1);
-  const recompPerTurn = SESSIONS.map(s => s.turns.map(() => 0));
-  const snaps = [], usedArr = [];
-  let ei = 0;
-  for (let t = 0; t <= TMAX; t++) {
-    while (ei < events.length && events[ei].u <= t) {
-      const { i, k, d } = events[ei];
-      const cNew = ctxNow[i] + d;
-      recompPerTurn[i][k] = Math.max(0, ctxNow[i] - resident[i]);
-      let free = M - resident.reduce((a, b) => a + b, 0);
-      const need = Math.min(cNew, M) - resident[i];
-      if (need > free) {
-        const order = SESSIONS.map((_, j) => j).filter(j => j !== i && resident[j] > 0)
-          .sort((a, b) => lastTurn[a] - lastTurn[b]);
-        for (const j of order) {
-          if (need <= free) break;
-          const take = Math.min(resident[j], need - free);
-          resident[j] -= take; free += take;
-        }
-      }
-      resident[i] = Math.min(cNew, M);
-      ctxNow[i] = cNew; lastTurn[i] = events[ei].u;
-      ei++;
-    }
-    snaps.push(resident.slice());
-    usedArr.push(resident.reduce((a, b) => a + b, 0));
-  }
-  return { snaps, usedArr, recompPerTurn };
-}
-
-const A2 = { W: 860, H: 300, ml: 66, mr: 16, mt: 20, mb: 36 };
-const a2X = t => A2.ml + t / TMAX * (A2.W - A2.ml - A2.mr);
-const a2Y = v => A2.mt + (A2.H - A2.mt - A2.mb) * (1 - v / YMAX_KV);
-const a2Svg = svgEl("svg", { viewBox: `0 0 ${A2.W} ${A2.H}`, class: "chart", role: "img", "aria-label": "LRU 池全景图" }, null);
-document.getElementById("stackPlot").appendChild(a2Svg);
-[0, 100, 200, 300, 400].forEach(v => {
-  svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(v), y2: a2Y(v), class: "gridline" }, a2Svg);
-  svgEl("text", { x: A2.ml - 8, y: a2Y(v) + 4, "text-anchor": "end", class: "ticktext" }, a2Svg).textContent = v;
-});
-const bandGroup = svgEl("g", {}, a2Svg);
-const overGroup = svgEl("g", {}, a2Svg);
-const capLine = svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, class: "cap-line" }, a2Svg);
-const capText = svgEl("text", { x: A2.W - A2.mr - 4, "text-anchor": "end", class: "cap-text" }, a2Svg);
-const a2Now = svgEl("line", { y1: A2.mt - 2, y2: A2.H - A2.mb + 2, class: "win-edge" }, a2Svg);
-const nowGroup = svgEl("g", {}, a2Svg);
-svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(0), y2: a2Y(0), class: "axisline" }, a2Svg);
-[0, 50, 100, 150, 200].forEach(tv =>
-  svgEl("text", { x: a2X(tv), y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, a2Svg).textContent = tv);
-svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, a2Svg)
-  .textContent = "时间（秒，示意）";
-const dotGroup = svgEl("g", {}, a2Svg);
-const poolAnnoGroup = svgEl("g", {}, a2Svg);
-svgEl("text", { x: A2.ml - 40, y: 12, class: "axtext" }, a2Svg).textContent = "千 token";
-
-function pathFromRun(arr, t0, t1, xf, yf) {
-  let d = `M${xf(t0)},${yf(arr[t0][1])}`;
-  for (let t = t0 + 1; t <= t1; t++) d += `L${xf(t)},${yf(arr[t - 1][1])}L${xf(t)},${yf(arr[t][1])}`;
-  d += `L${xf(t1)},${yf(arr[t1][0])}`;
-  for (let t = t1 - 1; t >= t0; t--) d += `L${xf(t + 1)},${yf(arr[t][0])}L${xf(t)},${yf(arr[t][0])}`;
-  return d + "Z";
-}
-
-let poolCache = null;
-function redrawPool(M) {
-  poolCache = simulatePool(M);
-  bandGroup.innerHTML = ""; overGroup.innerHTML = "";
-  const layers = SESSIONS.map(() => new Array(TMAX + 1).fill(null));
-  for (let t = 0; t <= TMAX; t++) {
-    let base = 0;
-    SESSIONS.forEach((s, i) => {
-      const r = poolCache.snaps[t][i];
-      if (r > 0.01) { layers[i][t] = [base, base + r]; base += r; }
-    });
-  }
-  poolCache.layers = layers;
-  layers.forEach((arr, i) => {
-    let t0 = null;
-    for (let t = 0; t <= TMAX + 1; t++) {
-      const on = t <= TMAX && arr[t] !== null;
-      if (on && t0 === null) t0 = t;
-      if (!on && t0 !== null) {
-        const t1 = t - 1;
-        if (t1 > t0) {
-          const p = svgEl("path", { d: pathFromRun(arr, t0, t1, a2X, a2Y), class: "kv-band" }, bandGroup);
-          svgEl("title", {}, p).textContent = SESSIONS[i].name;
-        }
-        t0 = null;
-      }
-    }
+/* ================= 第 4 节：stack distance 柱图 ================= */
+{
+  const W = 860, H = 330, ml = 46, mr = 16, mt = 22, mb = 46, ymax = 240;
+  const Y = v => mt + (H - mt - mb) * (1 - v / ymax);
+  const slot = (W - ml - mr) / RETURNS.length;
+  const barW = Math.min(20, slot - 6);
+  const xC = i => ml + (i + 0.5) * slot;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
+                             "aria-label": "每个回头轮的 stack distance 柱图" }, null);
+  document.getElementById("distPlot").appendChild(svg);
+  [0, 60, 120, 180, 240].forEach(v => {
+    svgEl("line", { x1: ml, x2: W - mr, y1: Y(v), y2: Y(v), class: "gridline" }, svg);
+    svgEl("text", { x: ml - 8, y: Y(v) + 4, "text-anchor": "end", class: "ticktext" }, svg).textContent = v;
   });
-  capLine.setAttribute("y1", a2Y(M)); capLine.setAttribute("y2", a2Y(M));
-  capText.setAttribute("y", a2Y(M) - 6);
-  capText.textContent = `HBM 容量 M = ${M}k`;
-  /* 轮次点：画在各自 session 的带子中心 */
-  dotGroup.innerHTML = ""; poolAnnoGroup.innerHTML = "";
-  SESSIONS.forEach((sn, i) => sn.turns.forEach(([u, dlt], k) => {
-    const seg = layers[i][u];
-    if (!seg) return;
-    const cy = (a2Y(seg[0]) + a2Y(seg[1])) / 2;
-    const miss = poolCache.recompPerTurn[i][k] > 0.01;
-    const dot = svgEl("circle", { cx: a2X(u), cy, r: 3.5, class: miss ? "ref-dot miss" : "ref-dot hit",
-                                  stroke: "var(--surface-1)", "stroke-width": 1.5 }, dotGroup);
-    svgEl("title", {}, dot).textContent = miss
-      ? `${sn.name} 第 ${k + 1} 轮（t=${u}s）：被挤过，重算 ${Math.round(poolCache.recompPerTurn[i][k])}k + 新增 ${dlt}k`
-      : `${sn.name} 第 ${k + 1} 轮（t=${u}s）：命中，只算新增 ${dlt}k`;
-  }));
-  /* 会话编号：标在各自带子最厚的位置 */
-  SESSIONS.forEach((sn, i) => {
-    let best = null;
-    for (let t = 0; t <= TMAX; t++) {
-      const seg = layers[i][t];
-      if (seg && (best === null || seg[1] - seg[0] > best.h)) best = { t, h: seg[1] - seg[0], seg };
+  svgEl("line", { x1: ml, x2: W - mr, y1: Y(0), y2: Y(0), class: "axisline" }, svg);
+  svgEl("text", { x: ml - 40, y: 12, class: "axtext" }, svg).textContent = "千 token";
+  svgEl("text", { x: ml + (W - ml - mr) / 2, y: H - 4, "text-anchor": "middle", class: "axtext" }, svg)
+    .textContent = "回头轮，按到达顺序——柱下数字 = 会话编号";
+  RETURNS.forEach((r, i) => {
+    if (r.others > 0) {
+      const o = svgEl("rect", { x: xC(i) - barW / 2, width: barW, y: Y(r.others), height: Y(0) - Y(r.others), class: "d-others" }, svg);
+      svgEl("title", {}, o).textContent = `${SESSIONS[r.si].name} 第 ${r.k + 1} 轮：沉默期间别人垫进 ${r.others}k`;
     }
-    if (!best || a2Y(best.seg[0]) - a2Y(best.seg[1]) < 10) return;
-    svgEl("text", { x: a2X(best.t), y: (a2Y(best.seg[0]) + a2Y(best.seg[1])) / 2 + 4,
-                    "text-anchor": "middle", class: "band-id" }, poolAnnoGroup)
-      .textContent = i + 1;
+    const own = svgEl("rect", { x: xC(i) - barW / 2, width: barW, y: Y(r.dist), height: Y(r.others) - Y(r.dist), class: "sess-" + r.si }, svg);
+    svgEl("title", {}, own).textContent = `${SESSIONS[r.si].name} 第 ${r.k + 1} 轮（t=${r.u}s）：distance ${r.dist}k（别人垫 ${r.others}k + 自己前缀 ${r.prev}k）`;
+    svgEl("text", { x: xC(i), y: H - mb + 16, "text-anchor": "middle", class: "ticktext" }, svg).textContent = r.si + 1;
   });
-  const annoAt = (i, u, text) => {
-    const seg = layers[i][u];
-    if (!seg) return;
-    svgEl("text", { x: a2X(u) + 8, y: (a2Y(seg[0]) + a2Y(seg[1])) / 2 + 3.5, class: "anno halo" }, poolAnnoGroup)
-      .textContent = text;
+  /* 注释：会话 1 的两次长停顿 */
+  const annoBar = (si, k, label) => {
+    const idx = RETURNS.findIndex(r => r.si === si && r.k === k);
+    if (idx < 0) return;
+    svgEl("text", { x: xC(idx), y: Y(RETURNS[idx].dist) - 8, "text-anchor": "middle", class: "anno halo" }, svg)
+      .textContent = label;
   };
-  annoAt(1, 46, "← 会话 2 此后永远沉默（死亡不可观测）");
-  annoAt(2, 95, "← 会话 3 停顿 61s 后回来");
+  annoBar(0, 5, "会话 1 的 +34s 停顿");
+  annoBar(0, 9, "会话 1 的 +36s 停顿");
+  const overGroup = svgEl("g", {}, svg);
+  const mLine = svgEl("line", { x1: ml, x2: W - mr, class: "cap-line" }, svg);
+  const mText = svgEl("text", { x: W - mr - 4, "text-anchor": "end", class: "cap-text" }, svg);
+  const mSlider = document.getElementById("mSlider"), mOut = document.getElementById("mOut");
+  function updateM() {
+    const M = +mSlider.value;
+    mOut.textContent = M;
+    mLine.setAttribute("y1", Y(M)); mLine.setAttribute("y2", Y(M));
+    mText.setAttribute("y", Y(M) - 6);
+    mText.textContent = `容量 M = ${M}k`;
+    overGroup.innerHTML = "";
+    let misses = 0, totalRe = 0;
+    RETURNS.forEach((r, i) => {
+      const re = recompAt(r, M);
+      if (re <= 0) return;
+      misses++; totalRe += re;
+      svgEl("rect", { x: xC(i) - barW / 2, width: barW, y: Y(r.dist), height: Y(r.dist - re) - Y(r.dist), class: "d-re" }, overGroup);
+    });
+    document.getElementById("distMiss").textContent = misses + " / " + RETURNS.length;
+    document.getElementById("distMissd").textContent = misses ? "红色部分要重算" : "全部命中";
+    document.getElementById("distRe").textContent = totalRe + "k";
+    document.getElementById("distGp").textContent = Math.round(TOTAL_NEW / (TOTAL_NEW + totalRe) * 100) + "%";
+  }
+  mSlider.addEventListener("input", updateM);
+  updateM();
 }
-
-const tSlider = document.getElementById("tSlider"), mSlider = document.getElementById("mSlider");
-const tOut = document.getElementById("tOut"), mOut = document.getElementById("mOut");
-let curT = +tSlider.value, curM = +mSlider.value;
-
-function updatePool(structChanged) {
-  if (structChanged) redrawPool(curM);
-  tOut.textContent = curT; mOut.textContent = curM;
-  a2Now.setAttribute("x1", a2X(curT)); a2Now.setAttribute("x2", a2X(curT));
-  const snap = poolCache.snaps[curT];
-  nowGroup.innerHTML = "";
-  SESSIONS.forEach((s, i) => {
-    const seg = poolCache.layers[i][curT];
-    if (!seg) return;
-    svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(seg[1]), height: a2Y(seg[0]) - a2Y(seg[1]), rx: 2, class: "now-seg" }, nowGroup);
-  });
-  document.getElementById("roT").textContent = curT + "s";
-  document.getElementById("roK").textContent = snap.filter(v => v > 0.01).length + " 个";
-  document.getElementById("roUsed").textContent = Math.round(poolCache.usedArr[curT]) + "k";
-  document.getElementById("roM").textContent = curM + "k";
-}
-tSlider.addEventListener("input", () => { curT = +tSlider.value; stopPlay(); updatePool(false); });
-mSlider.addEventListener("input", () => { curM = +mSlider.value; updatePool(true); });
-const playBtn = document.getElementById("playBtn");
-let timer = null;
-function stopPlay() { if (timer) { clearInterval(timer); timer = null; playBtn.textContent = "▶ 播放"; } }
-playBtn.addEventListener("click", () => {
-  if (timer) { stopPlay(); return; }
-  playBtn.textContent = "⏸ 暂停";
-  timer = setInterval(() => { curT = curT >= TMAX ? 0 : curT + 1; tSlider.value = curT; updatePool(false); }, 100);
-});
 
 /* ================= 第 5 节：雪崩线 ================= */
 const DELTA = 0.5, NMAXP = 32;
@@ -643,7 +563,6 @@ capSlider.addEventListener("input", () => updateCliff(true));
 cbarSlider.addEventListener("input", () => updateCliff(true));
 
 /* 初始渲染 */
-updatePool(true);
 updateCliff(true);
 </script>
 </body>
