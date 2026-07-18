@@ -124,7 +124,6 @@
   .band span { position: relative; z-index: 1; }
   .band .hitbar { position: absolute; left: 0; z-index: 0; }
   .band .heat { position: absolute; z-index: 0; background: var(--status-critical); opacity: .88; }
-  .band .fresh { position: absolute; left: 0; right: 0; z-index: 0; }
   table.sstats { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
   .sstats td { border-top: 1px solid var(--grid); padding: 4px 8px 4px 0; white-space: nowrap; }
   .sstats td.num { text-align: right; }
@@ -247,7 +246,7 @@
     <div class="poolwrap">
       <div class="stackcol">
         <p class="chart-title">session 级 LRU 栈（顶 = 最近说话）</p>
-        <p class="chart-note">带子高度 = context；<b>色深 = 这份副本已在池里服役多轮，色浅 = 刚写入或刚重算回来</b>；虚线可拖。勾选“块级账本”可看每段的命中（彩）/重算（红）横条。</p>
+        <p class="chart-note">带子高度 = context；<b>红色烧痕 = 在当前 M 下被重算过（越深次数越多）</b>——M 拖大红色就退；虚线可拖。勾选“块级账本”看每段的命中/重算横条。</p>
         <div id="stackBox"></div>
       </div>
       <div class="poolctl">
@@ -282,7 +281,7 @@
     <p class="chart-note">红圈 = 在当前 M 下回来要重算的轮；实心 = 回放进度。</p>
     <div class="chart-wrap" id="timeStrip"></div>
   </div>
-  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k，带子安然变深；压到 60k，大片前缀被反复重置、永远是浅色</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。带子的深浅是缓存自己的记忆：<b>深色段是服役多轮的老副本，浅色段是刚写入的新副本</b>——被反复逐出重算的区域永远轮不到变深。<b>会变老的缓存才健康，一直年轻的缓存在抖动。</b>具体账目（第几份拷贝、重算过几次）悬停任一段可见，或勾选<b>块级账本</b>。</p>
+  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k，红色一路退净——人人全命中；压到 60k，红色淹没全池</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。带上的<b>烧痕</b>与账单的红同义：在当前 M 下、这次回放里付过重算学费的范围，烧几遍颜色就有多深。悬停可见次数和当前副本的服役轮数；想分辨“老兵被烧”和“新兵夭折”，勾选<b>块级账本</b>看每段的命中/重算横条。</p>
 </section>
 
 <section id="cliff">
@@ -549,7 +548,9 @@ document.getElementById("ehTable").innerHTML =
   const ledgerTog = document.getElementById("ledgerTog");
   function bandBase() {
     bands.forEach((b, si) => {
-      b.style.background = `color-mix(in srgb, var(--series-${si + 1}) ${ledgerTog.checked ? 32 : 40}%, var(--page))`;
+      b.style.background = ledgerTog.checked
+        ? `color-mix(in srgb, var(--series-${si + 1}) 32%, var(--page))`
+        : `var(--series-${si + 1})`;
     });
   }
   ledgerTog.addEventListener("change", () => { bandBase(); refreshHeat(); });
@@ -610,7 +611,7 @@ document.getElementById("ehTable").innerHTML =
       if (re > 0) { const a = cnt[r.si]; for (let p = r.prev - re; p < r.prev; p++) a[p]++; }
     }
     bands.forEach((b, si) => {
-      b.querySelectorAll(".heat, .hitbar, .fresh").forEach(n => n.remove());
+      b.querySelectorAll(".heat, .hitbar").forEach(n => n.remove());
       const a = cnt[si], bounds = new Set(SCUM[si]);
       const Tn = Math.max(1, SESSIONS[si].turns.length - 1);   /* 账本横轴满刻度 */
       /* 每个位置当前副本的写入轮次 */
@@ -650,15 +651,15 @@ document.getElementById("ehTable").innerHTML =
             rb.title = tt;
             b.appendChild(rb);
           }
-        } else {
+        } else if (v > 0) {
           const ref = turnsDone[si] - 1 - iv;                  /* 当前副本已服役的轮数 */
-          const pct = 40 + Math.round(60 * Math.min(ref, 6) / 6);
-          const f = document.createElement("div");
-          f.className = "fresh";
-          f.style.top = top; f.style.height = ht;
-          f.style.background = `color-mix(in srgb, var(--series-${si + 1}) ${pct}%, var(--page))`;
-          f.title = `会话 ${si + 1} 前缀 ${p}–${q}k：当前副本第 ${iv + 1} 轮写入、已服役 ${ref} 轮；此前被重算 ${v} 次`;
-          b.appendChild(f);
+          const rb = document.createElement("div");
+          rb.className = "heat";
+          rb.style.top = top; rb.style.height = ht;
+          rb.style.left = "0"; rb.style.width = "100%";
+          rb.style.opacity = Math.min(.22 + .2 * v, .78);
+          rb.title = `会话 ${si + 1} 前缀 ${p}–${q}k：在当前 M 下被重算 ${v} 次（当前副本第 ${iv + 1} 轮写入、已服役 ${ref} 轮）`;
+          b.appendChild(rb);
         }
         p = q;
       }
