@@ -106,6 +106,8 @@
   #stackBox { position: relative; height: 372px; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); overflow: hidden; }
   .band { position: absolute; left: 6px; right: 6px; border-radius: 5px; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; padding: 2px 8px 0; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
   .band .bsub { font-weight: 400; font-size: 10px; opacity: .92; }
+  .band span { position: relative; z-index: 1; }
+  .band .heat { position: absolute; left: 0; right: 0; z-index: 0; background: var(--status-critical); }
   table.sstats { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
   .sstats td { border-top: 1px solid var(--grid); padding: 4px 8px 4px 0; white-space: nowrap; }
   .sstats td.num { text-align: right; }
@@ -229,7 +231,7 @@
     <div class="poolwrap">
       <div class="stackcol">
         <p class="chart-title">session 级 LRU 栈（顶 = 最近说话）</p>
-        <p class="chart-note">带子高度 = 该会话的 context；虚线可拖。</p>
+        <p class="chart-note">带子高度 = 该会话的 context；红色烧痕 = 这段前缀被逐出重算过（越深遍数越多）；虚线可拖。</p>
         <div id="stackBox"></div>
       </div>
       <div class="poolside">
@@ -247,7 +249,7 @@
     <p class="chart-note">红圈 = 在当前 M 下回来要重算的轮；实心 = 回放进度。</p>
     <div class="chart-wrap" id="timeStrip"></div>
   </div>
-  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。</p>
+  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。带子上的<b>烧痕</b>还记着块级的账：同一段前缀被烧了几遍颜色就有多深——这就是 OS 里 refault 计数的 KV 版，抖动的块级指纹。</p>
 </section>
 
 <section id="cliff">
@@ -543,7 +545,35 @@ document.getElementById("ehTable").innerHTML =
     document.getElementById("distMissd").textContent = seenReturns.length ? (miss ? "尾巴落在线下" : "全部命中") : "";
     document.getElementById("distRe").textContent = re + "k";
     document.getElementById("distGp").textContent = sumNew ? Math.round(sumNew / (sumNew + re) * 100) + "%" : "—";
-    stats();
+    stats(); refreshHeat();
+  }
+  /* 烧痕：每段前缀被逐出重算的次数（随 M 实时重算） */
+  function refreshHeat() {
+    const cnt = SESSIONS.map((sn, si) => new Int8Array(ctx[si] + 1));
+    for (const r of seenReturns) {
+      const re = recompAt(r, M);
+      if (re > 0) { const a = cnt[r.si]; for (let p = r.prev - re; p < r.prev; p++) a[p]++; }
+    }
+    bands.forEach((b, si) => {
+      b.querySelectorAll(".heat").forEach(n => n.remove());
+      const a = cnt[si];
+      let p = 0;
+      while (p < ctx[si]) {
+        const v = a[p];
+        let q = p + 1;
+        while (q < ctx[si] && a[q] === v) q++;
+        if (v > 0) {
+          const h = document.createElement("div");
+          h.className = "heat";
+          h.style.top = (p * S) + "px";
+          h.style.height = ((q - p) * S) + "px";
+          h.style.opacity = Math.min(.22 + .2 * v, .78);
+          h.title = `会话 ${si + 1} 前缀 ${p}–${q}k：被逐出重算 ${v} 次`;
+          b.appendChild(h);
+        }
+        p = q;
+      }
+    });
   }
   function stats() {
     const t = lastEv ? lastEv.u : 0;
