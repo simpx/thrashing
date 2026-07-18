@@ -84,6 +84,7 @@
   .anno      { fill: var(--muted); font-size: 11px; font-style: italic; }
   .anno.strong { fill: var(--text-secondary); font-style: normal; font-weight: 600; }
   .anno.halo { fill: var(--text-secondary); font-size: 11px; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3.5; stroke-linejoin: round; }
+  .band-id { fill: var(--text-secondary); font-size: 11px; font-weight: 700; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3; stroke-linejoin: round; }
   .s1-line { stroke: var(--series-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s2-line { stroke: var(--series-2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s3-line { stroke: var(--series-3); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
@@ -203,6 +204,7 @@
       <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="80" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
     </div>
     <p class="chart-title">LRU 池全景</p>
+    <p class="chart-note">带上的数字 = 会话编号；悬停带子与点可看明细。</p>
     <div class="chart-wrap" id="stackPlot"></div>
     <p class="readout">t = <code id="roT"></code>　池中 session <code id="roK"></code>　已用 <code id="roUsed"></code> / 容量 <code id="roM"></code></p>
   </div>
@@ -540,6 +542,18 @@ function redrawPool(M) {
       ? `${sn.name} 第 ${k + 1} 轮（t=${u}s）：被挤过，重算 ${Math.round(poolCache.recompPerTurn[i][k])}k + 新增 ${dlt}k`
       : `${sn.name} 第 ${k + 1} 轮（t=${u}s）：命中，只算新增 ${dlt}k`;
   }));
+  /* 会话编号：标在各自带子最厚的位置 */
+  SESSIONS.forEach((sn, i) => {
+    let best = null;
+    for (let t = 0; t <= TMAX; t++) {
+      const seg = layers[i][t];
+      if (seg && (best === null || seg[1] - seg[0] > best.h)) best = { t, h: seg[1] - seg[0], seg };
+    }
+    if (!best || a2Y(best.seg[0]) - a2Y(best.seg[1]) < 10) return;
+    svgEl("text", { x: a2X(best.t), y: (a2Y(best.seg[0]) + a2Y(best.seg[1])) / 2 + 4,
+                    "text-anchor": "middle", class: "band-id" }, poolAnnoGroup)
+      .textContent = i + 1;
+  });
   const annoAt = (i, u, text) => {
     const seg = layers[i][u];
     if (!seg) return;
