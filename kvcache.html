@@ -123,6 +123,8 @@
   .band .bsub { font-weight: 400; font-size: 9.5px; opacity: .92; }
   .band span { position: relative; z-index: 1; }
   .band .heat { position: absolute; left: 0; right: 0; z-index: 0; background: var(--status-critical); }
+  .band .band-st { position: absolute; left: 0; right: 0; display: flex; align-items: flex-end; justify-content: flex-start; padding: 0 7px 1px; font-size: 9px; font-weight: 600; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--page) 55%, transparent); }
+  .band .band-st .st-t { opacity: .85; }
   table.sstats { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
   .sstats td { border-top: 1px solid var(--grid); padding: 4px 8px 4px 0; white-space: nowrap; }
   .sstats td.num { text-align: right; }
@@ -245,7 +247,7 @@
     <div class="poolwrap">
       <div class="stackcol">
         <p class="chart-title">session 级 LRU 栈（顶 = 最近说话）</p>
-        <p class="chart-note">带子高度 = 该会话的 context；红色烧痕 = 这段前缀被逐出重算过（越深遍数越多）；虚线可拖。</p>
+        <p class="chart-note">带子高度 = context，一层 = 一轮（色越浅越新）；红色烧痕 = 被逐出重算过（越深遍数越多）；虚线可拖。</p>
         <div id="stackBox"></div>
       </div>
       <div class="poolctl">
@@ -279,7 +281,7 @@
     <p class="chart-note">红圈 = 在当前 M 下回来要重算的轮；实心 = 回放进度。</p>
     <div class="chart-wrap" id="timeStrip"></div>
   </div>
-  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。带子上的<b>烧痕</b>还记着块级的账：同一段前缀被烧了几遍颜色就有多深——这就是 OS 里 refault 计数的 KV 版，抖动的块级指纹。</p>
+  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。带子上的<b>烧痕</b>还记着块级的账：同一段前缀被烧了几遍颜色就有多深——这就是 OS 里 refault 计数的 KV 版，抖动的块级指纹。带内的<b>年轮</b>（一层 = 一轮，越浅越新）让同样的烧痕分出可惜程度：烧在深色老层上的是<b>命中过多次的老数据</b>，烧在浅色新层上的是<b>还没立过功的新数据</b>——悬停每一段可见它的命中/重算账本。</p>
 </section>
 
 <section id="cliff">
@@ -547,7 +549,9 @@ document.getElementById("ehTable").innerHTML =
   const logEl = document.getElementById("poolLog");
   let M = +mSlider.value;
   let idx = 0, ctx = [0, 0, 0, 0, 0], order = [], sumNew = 0, seenReturns = [];
-  let lastEv = null, lastSpoke = [null, null, null, null, null];
+  let lastEv = null, lastSpoke = [null, null, null, null, null], turnsDone = [0, 0, 0, 0, 0];
+  /* 每会话的轮次累计边界（年轮） */
+  const SCUM = SESSIONS.map(sn => { const a = []; let c = 0; for (const [, d] of sn.turns) { c += d; a.push(c); } return a; });
 
   function layout() {
     let off = 0;
@@ -557,9 +561,20 @@ document.getElementById("ehTable").innerHTML =
       b.style.display = "flex";
       b.style.top = (PAD + off * S) + "px";
       b.style.height = Math.max(3, h - 1) + "px";
-      b.innerHTML = h >= 17
+      /* 年轮：一层一轮，越老色越深、触碰（命中+重算）越多 */
+      const n = turnsDone[si];
+      let st = "";
+      for (let k = 0; k < n; k++) {
+        const a0 = k ? SCUM[si][k - 1] : 0, a1 = SCUM[si][k], sh = (a1 - a0) * S;
+        const pct = n > 1 ? Math.round(100 - 25 * k / (n - 1)) : 100;
+        st += `<div class="band-st" style="top:${(a0 * S).toFixed(1)}px;height:${Math.max(1, sh - 0.5).toFixed(1)}px;` +
+              `background:color-mix(in srgb, var(--series-${si + 1}) ${pct}%, var(--page))" ` +
+              `title="第 ${k + 1} 轮出生（t=${SESSIONS[si].turns[k][0]}s）· 本层 ${a1 - a0}k · 此后被触碰 ${n - 1 - k} 次（命中或重算）">` +
+              (sh >= 28 && k > 0 ? `<span class="st-t">轮 ${k + 1} · +${a1 - a0}k</span>` : "") + `</div>`;
+      }
+      b.innerHTML = st + (h >= 17
         ? `<span>会话 ${si + 1} · ${ctx[si]}k</span>` + (h >= 34 && age > 0 ? `<span class="bsub">闲 ${age}s</span>` : "")
-        : "";
+        : "");
       b.title = `会话 ${si + 1}：context ${ctx[si]}k，深度 ${off}k–${off + ctx[si]}k，闲置 ${age}s`;
       off += ctx[si];
     }
@@ -597,19 +612,21 @@ document.getElementById("ehTable").innerHTML =
     }
     bands.forEach((b, si) => {
       b.querySelectorAll(".heat").forEach(n => n.remove());
-      const a = cnt[si];
+      const a = cnt[si], bounds = new Set(SCUM[si]);
       let p = 0;
       while (p < ctx[si]) {
         const v = a[p];
         let q = p + 1;
-        while (q < ctx[si] && a[q] === v) q++;
+        while (q < ctx[si] && a[q] === v && !bounds.has(q)) q++;
         if (v > 0) {
+          const born = SCUM[si].findIndex(c => p < c);          /* 出生轮（0 基） */
+          const hits = Math.max(0, turnsDone[si] - 1 - born - v);
           const h = document.createElement("div");
           h.className = "heat";
           h.style.top = (p * S) + "px";
           h.style.height = ((q - p) * S) + "px";
           h.style.opacity = Math.min(.22 + .2 * v, .78);
-          h.title = `会话 ${si + 1} 前缀 ${p}–${q}k：被逐出重算 ${v} 次`;
+          h.title = `会话 ${si + 1} 前缀 ${p}–${q}k（第 ${born + 1} 轮出生）：命中 ${hits} 次，被逐出重算 ${v} 次`;
           b.appendChild(h);
         }
         p = q;
@@ -667,6 +684,7 @@ document.getElementById("ehTable").innerHTML =
     sumNew += e.d;
     ctx[e.si] += e.d;
     lastSpoke[e.si] = e.u;
+    turnsDone[e.si]++;
     order = [e.si, ...order.filter(s => s !== e.si)];
     lastEv = { ...e, n: idx };
     layout(); tiles(); log(); refreshStrip();
@@ -674,7 +692,7 @@ document.getElementById("ehTable").innerHTML =
   }
   function reset() {
     idx = 0; ctx = [0, 0, 0, 0, 0]; order = []; sumNew = 0; seenReturns = []; lastEv = null;
-    lastSpoke = [null, null, null, null, null];
+    lastSpoke = [null, null, null, null, null]; turnsDone = [0, 0, 0, 0, 0];
     bands.forEach(b => { b.style.display = "none"; });
     box.querySelectorAll(".flash-re").forEach(n => n.remove());
     layout(); tiles(); refreshStrip();
