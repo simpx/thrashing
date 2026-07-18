@@ -131,9 +131,11 @@
   .band.hitflash { animation: fhit .6s ease-out; }
   @keyframes fhit { 0% { filter: brightness(1.45); } 100% { filter: none; } }
   #ghostWash { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none;
-    background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--page) 55%, transparent) 0 3px, transparent 3px 9px),
-                color-mix(in srgb, var(--page) 28%, transparent); }
-  #mDivider { position: absolute; left: 0; right: 0; z-index: 3; border-top: 2px dashed var(--series-1); cursor: grab; touch-action: none; }
+    background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--page) 74%, transparent) 0 4px, transparent 4px 9px),
+                color-mix(in srgb, var(--page) 42%, transparent); }
+  #ghostWash .gw-label { position: absolute; top: 3px; right: 8px; font-size: 9.5px; font-weight: 600; color: var(--text-secondary); letter-spacing: .04em; paint-order: stroke; text-shadow: 0 0 3px var(--page), 0 0 3px var(--page); }
+  #mDivider { position: absolute; left: 0; right: 0; z-index: 3; border-top: 2.5px dashed var(--series-1); cursor: grab; touch-action: none; }
+  #mDivider::after { content: ""; position: absolute; left: 0; right: 0; top: -5px; height: 8px; background: color-mix(in srgb, var(--page) 72%, transparent); z-index: -1; }
   #mDivider:active { cursor: grabbing; }
   #mDivider::before { content: ""; position: absolute; left: 0; right: 0; top: -9px; height: 18px; }
   #mDivider .tag { position: absolute; right: 6px; top: -10px; background: var(--series-1); color: #fff; font-size: 10.5px; line-height: 1; padding: 3px 8px; border-radius: 999px; white-space: nowrap; user-select: none; }
@@ -530,7 +532,9 @@ document.getElementById("ehTable").innerHTML =
   const box = document.getElementById("stackBox");
   const S = matchMedia("(max-width: 640px)").matches ? 1 : 1.3;  /* 竖直比例：px / 千 token */
   const PAD = 6;
-  const wash = document.createElement("div"); wash.id = "ghostWash"; box.appendChild(wash);
+  const wash = document.createElement("div"); wash.id = "ghostWash";
+  wash.innerHTML = '<span class="gw-label">已逐出 · 回来需重算</span>';
+  box.appendChild(wash);
   const divider = document.createElement("div"); divider.id = "mDivider";
   divider.innerHTML = '<div class="tag"></div>'; box.appendChild(divider);
   const bands = SESSIONS.map((sn, si) => {
