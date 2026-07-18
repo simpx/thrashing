@@ -110,9 +110,9 @@
   .solo-foot    { fill: var(--band-fill); }
   .bar-hit      { fill: var(--series-1); }
   .bar-miss     { fill: var(--status-critical); }
-  .blk          { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 1.5; }
-  .blk-new      { fill: var(--series-1); }
-  .blk-re       { fill: var(--status-critical); }
+  .seg-hit      { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
+  .seg-new      { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
+  .seg-re       { fill: var(--status-critical); opacity: .82; stroke: var(--surface-1); stroke-width: 2; }
   .ws-rowband   { fill: var(--series-1); opacity: 0; }
   .ws-rowband.on{ opacity: .10; }
   .win-band     { fill: var(--series-1); opacity: .08; }
@@ -198,8 +198,8 @@
     <div class="controls">
       <label>存活期 <em class="v">τ</em><input type="range" id="soloTau" min="5" max="60" value="15"><output id="soloTauOut">15</output>s</label>
     </div>
-    <div class="legend"><span><span class="key" style="background:var(--band-fill);width:14px;height:8px"></span>块驻留在 HBM（每行 = 一轮新增的块；空档 = 被挤出）</span><span><span class="key k1"></span>本轮新块</span><span><span class="key" style="background:var(--status-critical)"></span>重算被挤掉的块（红色高度 = 重算量）</span></div>
-    <p class="chart-note">读法：说话 → 顶上多一行新块（蓝）；沉默满 τ → 所有行同时断流；再回来 → 一整列红色重算，所有行重生。</p>
+    <div class="legend"><span><span class="key" style="background:var(--band-fill);width:14px;height:8px"></span>已在 HBM 的前缀（免费复用）</span><span><span class="key" style="background:var(--status-critical)"></span>被挤出的前缀（本轮重算）</span><span><span class="key k1"></span>本轮新增（必须算）</span></div>
+    <p class="chart-note"><b>每一行 = 一轮到达时的 prefill 账单</b>：行的总长 = 这一轮的 context，行越往下越长（context 只增不减）；<b>彩色部分（红 + 蓝）= 这一轮实际要算的量</b>。行首括号里是距上一轮的间隔——间隔超过 τ 的行，灰色变红。</p>
     <div class="chart-wrap" id="soloPlot"></div>
     <div class="tiles">
       <div class="tile"><div class="tl">平均 HBM 占用</div><div class="tv" id="soloMem">—</div><div class="td">灰色面积 ÷ 总时长（千 token）</div></div>
@@ -462,80 +462,60 @@ function residentAt(s, t, tau) {  // 窗口 (t-τ, t] 内有轮次
   return last > -Infinity && t - last < tau;
 }
 
-/* ---------- 可视化 2.1：单个 session 的两本账 ---------- */
+/* ---------- 可视化 2.1：一轮一行的 prefill 账单 ---------- */
 const SOLO_TURNS = [[5,4],[14,3],[24,4],[33,3],[41,4],[75,5],[84,3],[95,4],[104,3],[140,5],[150,3],[159,4],[171,3],[190,4]];
 const SOLO = { turns: SOLO_TURNS };
-const SO = { W: 860, H: 300, ml: 66, mr: 16, mt: 26, mb: 36, ymax: 60 };
-const soX = t => SO.ml + t / TMAX * (SO.W - SO.ml - SO.mr);
-const soY = v => SO.mt + (SO.H - SO.mt - SO.mb) * (1 - v / SO.ymax);
+const SOLO_N = SOLO_TURNS.length;
+const SOLO_CUMS = (() => { const a = []; let c = 0; for (const [, d] of SOLO_TURNS) { c += d; a.push(c); } return a; })();
+const SO = { W: 860, H: 356, ml: 118, mr: 16, mt: 14, mb: 40, xmax: 55 };
+const soX = v => SO.ml + v / SO.xmax * (SO.W - SO.ml - SO.mr);
+const soRowH = (SO.H - SO.mt - SO.mb) / SOLO_N;
+const soRowTop = k => SO.mt + k * soRowH;
 const soSvg = svgEl("svg", { viewBox: `0 0 ${SO.W} ${SO.H}`, class: "chart", role: "img",
-                             "aria-label": "单个 session 的内存占用与每轮计算量" }, null);
+                             "aria-label": "一轮一行的 prefill 账单" }, null);
 document.getElementById("soloPlot").appendChild(soSvg);
-[0, 20, 40, 60].forEach(v => {
-  svgEl("line", { x1: SO.ml, x2: SO.W - SO.mr, y1: soY(v), y2: soY(v), class: "gridline" }, soSvg);
-  svgEl("text", { x: SO.ml - 8, y: soY(v) + 4, "text-anchor": "end", class: "ticktext" }, soSvg).textContent = v;
+[0, 10, 20, 30, 40, 50].forEach(v => {
+  svgEl("line", { x1: soX(v), x2: soX(v), y1: SO.mt, y2: SO.H - SO.mb, class: "gridline" }, soSvg);
+  svgEl("text", { x: soX(v), y: SO.H - SO.mb + 16, "text-anchor": "middle", class: "ticktext" }, soSvg).textContent = v;
 });
-const soloFootGroup = svgEl("g", {}, soSvg);
-const soloBarGroup = svgEl("g", {}, soSvg);
+SOLO_TURNS.forEach(([u], k) => {
+  const gap = k ? u - SOLO_TURNS[k - 1][0] : null;
+  svgEl("text", { x: SO.ml - 10, y: soRowTop(k) + soRowH / 2 + 3.5, "text-anchor": "end", class: "ticktext" }, soSvg)
+    .textContent = `轮 ${k + 1}` + (gap !== null ? `（+${gap}s）` : `（t=${u}s）`);
+});
+const soloRowGroup = svgEl("g", {}, soSvg);
 const soloAnnoGroup = svgEl("g", {}, soSvg);
-function soloMeasure(x1, x2, y, label) {
-  svgEl("line", { x1: soX(x1), x2: soX(x2), y1: soY(y), y2: soY(y), class: "measure" }, soloAnnoGroup);
-  for (const x of [x1, x2])
-    svgEl("line", { x1: soX(x), x2: soX(x), y1: soY(y) - 3, y2: soY(y) + 3, class: "measure" }, soloAnnoGroup);
-  svgEl("text", { x: (soX(x1) + soX(x2)) / 2, y: soY(y) - 7, "text-anchor": "middle", class: "anno strong" }, soloAnnoGroup)
-    .textContent = label;
-}
-svgEl("line", { x1: SO.ml, x2: SO.W - SO.mr, y1: soY(0), y2: soY(0), class: "axisline" }, soSvg);
-[0, 50, 100, 150, 200].forEach(tv =>
-  svgEl("text", { x: soX(tv), y: SO.H - SO.mb + 16, "text-anchor": "middle", class: "ticktext" }, soSvg).textContent = tv);
-svgEl("text", { x: SO.ml + (SO.W - SO.ml - SO.mr) / 2, y: SO.H - 2, "text-anchor": "middle", class: "axtext" }, soSvg).textContent = "时间（秒，示意）";
-svgEl("text", { x: SO.ml - 40, y: 12, class: "axtext" }, soSvg).textContent = "千 token";
+svgEl("line", { x1: soX(0), x2: soX(0), y1: SO.mt, y2: SO.H - SO.mb, class: "axisline" }, soSvg);
+svgEl("text", { x: SO.ml + (SO.W - SO.ml - SO.mr) / 2, y: SO.H - 2, "text-anchor": "middle", class: "axtext" }, soSvg)
+  .textContent = "这一轮 prefill 的 context（千 token）——左端是最早的历史，右端是本轮新增";
 
 function redrawSolo(tau) {
-  soloFootGroup.innerHTML = ""; soloBarGroup.innerHTML = ""; soloAnnoGroup.innerHTML = "";
-  /* 图上标注：两个代表性间隔，文字随 τ 翻转 */
-  soloMeasure(14, 24, 22, `间隔 10s ${10 <= tau ? "≤ τ：命中，只算新增" : "＞ τ：块已被挤出，重算"}`);
-  soloMeasure(41, 75, 34, `沉默 34s ${34 <= tau ? "≤ τ：块还在，回来命中" : "＞ τ：块已被挤出，整列重算"}`);
-  if (tau < 34)
-    svgEl("text", { x: soX(41 + tau) + 5, y: soY(27), class: "anno" }, soloAnnoGroup)
-      .textContent = "← 存活满 τ，被挤出";
-  const n = SOLO_TURNS.length;
-  const times = SOLO_TURNS.map(t => t[0]);
-  const cums = []; let c = 0;
-  SOLO_TURNS.forEach(([, d]) => { c += d; cums.push(c); });
-  /* 每轮的块 = 一条泳道；横条 = 驻留时段（沉默满 τ 断流，下一轮重生） */
-  const segs = times.map((u, j) =>
-    [u, Math.min(u + tau, j + 1 < n ? times[j + 1] : TMAX, TMAX)]);
-  for (let k = 0; k < n; k++) {
-    const y0 = k ? cums[k - 1] : 0, y1 = cums[k];
-    let s = segs[k][0], e = segs[k][1];
-    const rects = [];
-    for (let j = k + 1; j < n; j++) {
-      if (times[j] <= e + 0.001) e = segs[j][1];
-      else { rects.push([s, e]); s = segs[j][0]; e = segs[j][1]; }
-    }
-    rects.push([s, e]);
-    for (const [a, b] of rects)
-      svgEl("rect", { x: soX(a), width: Math.max(1, soX(b) - soX(a)),
-                      y: soY(y1), height: soY(y0) - soY(y1), class: "blk" }, soloFootGroup);
-  }
-  /* 每轮到达：蓝 = 新块；红 = 重算被挤掉的块（红色高度 = 重算量） */
+  soloRowGroup.innerHTML = ""; soloAnnoGroup.innerHTML = "";
+  const barH = Math.max(8, soRowH - 6);
   let totalCost = 0, totalNew = 0, waste = 0;
-  SOLO_TURNS.forEach(([u, d], j) => {
-    const prevCum = j ? cums[j - 1] : 0;
-    const gap = j ? u - times[j - 1] : Infinity;
-    const recomp = gap > tau ? prevCum : 0;
+  SOLO_TURNS.forEach(([u, d], k) => {
+    const prev = k ? SOLO_CUMS[k - 1] : 0;
+    const gap = k ? u - SOLO_TURNS[k - 1][0] : Infinity;
+    const miss = gap > tau;
+    const recomp = miss ? prev : 0;
     totalCost += d + recomp; totalNew += d; waste += recomp;
-    if (recomp > 0) {
-      const re = svgEl("rect", { x: soX(u) - 2.5, width: 5, y: soY(prevCum),
-                                 height: soY(0) - soY(prevCum), class: "blk-re" }, soloBarGroup);
-      svgEl("title", {}, re).textContent = `t=${u}s：沉默 ${gap}s ＞ τ，重算 ${recomp}k + 新增 ${d}k`;
+    const y = soRowTop(k) + (soRowH - barH) / 2;
+    if (prev > 0) {
+      const pr = svgEl("rect", { x: soX(0), width: soX(prev) - soX(0), y, height: barH,
+                                 class: miss ? "seg-re" : "seg-hit" }, soloRowGroup);
+      svgEl("title", {}, pr).textContent = miss
+        ? `轮 ${k + 1}：沉默 ${gap}s ＞ τ，前缀 ${prev}k 已被挤出 → 本轮全部重算`
+        : `轮 ${k + 1}：间隔 ${gap}s ≤ τ，前缀 ${prev}k 还在 HBM → 免费复用`;
     }
-    const nw = svgEl("rect", { x: soX(u) - 2.5, width: 5, y: soY(cums[j]),
-                               height: soY(prevCum) - soY(cums[j]), class: "blk-new" }, soloBarGroup);
-    svgEl("title", {}, nw).textContent = recomp > 0
-      ? `t=${u}s：新增 ${d}k（下面的红色是重算）` : `t=${u}s：命中，只算新增 ${d}k`;
+    const nw = svgEl("rect", { x: soX(prev), width: soX(SOLO_CUMS[k]) - soX(prev), y, height: barH,
+                               class: "seg-new" }, soloRowGroup);
+    svgEl("title", {}, nw).textContent = `轮 ${k + 1}：本轮新增 ${d}k（无论如何都要算）`;
   });
+  const anno = (k, label) =>
+    svgEl("text", { x: soX(SOLO_CUMS[k]) + 8, y: soRowTop(k) + soRowH / 2 + 3.5, class: "anno strong" }, soloAnnoGroup)
+      .textContent = label;
+  anno(2, 10 <= tau ? "← 间隔 10s ≤ τ：前缀白嫖，只算蓝色" : "← 间隔 10s ＞ τ：前缀被挤出，整行重算");
+  anno(5, 34 <= tau ? "← 沉默 34s ≤ τ：块还在，照样白嫖" : "← 沉默 34s ＞ τ：前缀被挤出，红色全部重算");
   const pts = [];
   for (let t = 0; t <= TMAX; t++) pts.push(residentAt(SOLO, t, tau) ? ctxAt(SOLO, t) : 0);
   const avgMem = pts.reduce((a, b) => a + b, 0) / (TMAX + 1);
