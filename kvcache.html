@@ -110,6 +110,9 @@
   .solo-foot    { fill: var(--band-fill); }
   .bar-hit      { fill: var(--series-1); }
   .bar-miss     { fill: var(--status-critical); }
+  .blk          { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 1.5; }
+  .blk-new      { fill: var(--series-1); }
+  .blk-re       { fill: var(--status-critical); }
   .ws-rowband   { fill: var(--series-1); opacity: 0; }
   .ws-rowband.on{ opacity: .10; }
   .win-band     { fill: var(--series-1); opacity: .08; }
@@ -195,7 +198,8 @@
     <div class="controls">
       <label>存活期 <em class="v">τ</em><input type="range" id="soloTau" min="5" max="60" value="15"><output id="soloTauOut">15</output>s</label>
     </div>
-    <div class="legend"><span><span class="key k1"></span>命中轮：只算新增</span><span><span class="key" style="background:var(--status-critical)"></span>重算轮：整个前缀重算</span><span style="color:var(--muted)">灰色 = KV 驻留在 HBM 的时段，高度 = context</span></div>
+    <div class="legend"><span><span class="key" style="background:var(--band-fill);width:14px;height:8px"></span>块驻留在 HBM（每行 = 一轮新增的块；空档 = 被挤出）</span><span><span class="key k1"></span>本轮新块</span><span><span class="key" style="background:var(--status-critical)"></span>重算被挤掉的块（红色高度 = 重算量）</span></div>
+    <p class="chart-note">读法：说话 → 顶上多一行新块（蓝）；沉默满 τ → 所有行同时断流；再回来 → 一整列红色重算，所有行重生。</p>
     <div class="chart-wrap" id="soloPlot"></div>
     <div class="tiles">
       <div class="tile"><div class="tl">平均 HBM 占用</div><div class="tv" id="soloMem">—</div><div class="td">灰色面积 ÷ 总时长（千 token）</div></div>
@@ -491,32 +495,49 @@ function redrawSolo(tau) {
   soloFootGroup.innerHTML = ""; soloBarGroup.innerHTML = ""; soloAnnoGroup.innerHTML = "";
   /* 图上标注：两个代表性间隔，文字随 τ 翻转 */
   soloMeasure(14, 24, 22, `间隔 10s ${10 <= tau ? "≤ τ：命中，只算新增" : "＞ τ：块已被挤出，重算"}`);
-  soloMeasure(41, 75, 34, `沉默 34s ${34 <= tau ? "≤ τ：块还在，回来命中" : "＞ τ：块已被挤出，整段重算"}`);
+  soloMeasure(41, 75, 34, `沉默 34s ${34 <= tau ? "≤ τ：块还在，回来命中" : "＞ τ：块已被挤出，整列重算"}`);
   if (tau < 34)
-    svgEl("text", { x: soX(41 + tau) + 5, y: soY(20), class: "anno" }, soloAnnoGroup)
+    svgEl("text", { x: soX(41 + tau) + 5, y: soY(27), class: "anno" }, soloAnnoGroup)
       .textContent = "← 存活满 τ，被挤出";
-  /* 内存账：驻留期间的 context 面积 */
+  const n = SOLO_TURNS.length;
+  const times = SOLO_TURNS.map(t => t[0]);
+  const cums = []; let c = 0;
+  SOLO_TURNS.forEach(([, d]) => { c += d; cums.push(c); });
+  /* 每轮的块 = 一条泳道；横条 = 驻留时段（沉默满 τ 断流，下一轮重生） */
+  const segs = times.map((u, j) =>
+    [u, Math.min(u + tau, j + 1 < n ? times[j + 1] : TMAX, TMAX)]);
+  for (let k = 0; k < n; k++) {
+    const y0 = k ? cums[k - 1] : 0, y1 = cums[k];
+    let s = segs[k][0], e = segs[k][1];
+    const rects = [];
+    for (let j = k + 1; j < n; j++) {
+      if (times[j] <= e + 0.001) e = segs[j][1];
+      else { rects.push([s, e]); s = segs[j][0]; e = segs[j][1]; }
+    }
+    rects.push([s, e]);
+    for (const [a, b] of rects)
+      svgEl("rect", { x: soX(a), width: Math.max(1, soX(b) - soX(a)),
+                      y: soY(y1), height: soY(y0) - soY(y1), class: "blk" }, soloFootGroup);
+  }
+  /* 每轮到达：蓝 = 新块；红 = 重算被挤掉的块（红色高度 = 重算量） */
+  let totalCost = 0, totalNew = 0, waste = 0;
+  SOLO_TURNS.forEach(([u, d], j) => {
+    const prevCum = j ? cums[j - 1] : 0;
+    const gap = j ? u - times[j - 1] : Infinity;
+    const recomp = gap > tau ? prevCum : 0;
+    totalCost += d + recomp; totalNew += d; waste += recomp;
+    if (recomp > 0) {
+      const re = svgEl("rect", { x: soX(u) - 2.5, width: 5, y: soY(prevCum),
+                                 height: soY(0) - soY(prevCum), class: "blk-re" }, soloBarGroup);
+      svgEl("title", {}, re).textContent = `t=${u}s：沉默 ${gap}s ＞ τ，重算 ${recomp}k + 新增 ${d}k`;
+    }
+    const nw = svgEl("rect", { x: soX(u) - 2.5, width: 5, y: soY(cums[j]),
+                               height: soY(prevCum) - soY(cums[j]), class: "blk-new" }, soloBarGroup);
+    svgEl("title", {}, nw).textContent = recomp > 0
+      ? `t=${u}s：新增 ${d}k（下面的红色是重算）` : `t=${u}s：命中，只算新增 ${d}k`;
+  });
   const pts = [];
   for (let t = 0; t <= TMAX; t++) pts.push(residentAt(SOLO, t, tau) ? ctxAt(SOLO, t) : 0);
-  let d = `M${soX(0)},${soY(pts[0])}`;
-  for (let t = 1; t <= TMAX; t++) d += `L${soX(t)},${soY(pts[t - 1])}L${soX(t)},${soY(pts[t])}`;
-  d += `L${soX(TMAX)},${soY(0)}L${soX(0)},${soY(0)}Z`;
-  svgEl("path", { d, class: "solo-foot" }, soloFootGroup);
-  /* 计算账：每轮一根柱 */
-  let ctx = 0, totalCost = 0, totalNew = 0, waste = 0;
-  SOLO_TURNS.forEach(([u, delta], k) => {
-    ctx += delta;
-    const gap = k === 0 ? Infinity : u - SOLO_TURNS[k - 1][0];
-    const miss = gap > tau;
-    const cost = miss ? ctx : delta;
-    totalCost += cost; totalNew += delta; if (miss) waste += ctx - delta;
-    const bar = svgEl("rect", { x: soX(u) - 4, width: 8, y: soY(cost), height: soY(0) - soY(cost),
-                                rx: 2, class: miss ? "bar-miss" : "bar-hit" }, soloBarGroup);
-    svgEl("title", {}, bar).textContent =
-      `t=${u}s：${miss ? "重算 " + ctx + "k（前缀已释放）" : "命中，只算新增 " + delta + "k"}`;
-    svgEl("circle", { cx: soX(u), cy: soY(cost), r: 3.5, class: miss ? "bar-miss" : "bar-hit",
-                      stroke: "var(--surface-1)", "stroke-width": 1.5 }, soloBarGroup);
-  });
   const avgMem = pts.reduce((a, b) => a + b, 0) / (TMAX + 1);
   document.getElementById("soloMem").textContent = avgMem.toFixed(1);
   document.getElementById("soloCost").textContent = totalCost + "k";
