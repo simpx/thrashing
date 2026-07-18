@@ -180,16 +180,16 @@
 
 <section id="ws">
   <div class="kicker">概念一的转世</div>
-  <h2>2. Session 的工作集：谁的 KV 该在 HBM 里</h2>
+  <h2>2. 一个 session 的工作集：全有或全无</h2>
+  <p>沿用前篇的路线：<b>先看一个 session 随时间的变化</b>——τ 怎么选（第 3 节）、miss 有多贵（第 4 节），都在单个 session 上就能讲清；多个 session 互相挤占，是第 5 节以后的事。</p>
   <div class="defbox">
-    <p><b>定义</b>　时刻 <em class="v">t</em>、窗口 <em class="v">τ</em> 下的工作集 <em class="v">W</em>(<em class="v">t</em>, <em class="v">τ</em>)：最近 <em class="v">τ</em> 秒内有过轮次到达的 session，它们全部前缀 KV 的并集。所需 HBM 就是这些 session 的 context 长度之和。</p>
-    <p>与前篇的关键区别：session 内部没有局部性可言——每轮都要摸全部历史 block，块级访问是“循环全扫”。<b>所有的局部性都在 session 粒度的时间维度上</b>：刚说过话的 session 大概率马上还会说话（用户还在对话界面前），沉默越久回来的概率越低。这里的“轮次间隔”（分时系统文献里的老词 think time，指用户读回复、打字的时间，与模型的 thinking 无关）就是前篇引用串局部性的转世。</p>
+    <p><b>定义（单个 session）</b>　一个 session 在时刻 <em class="v">t</em>、窗口 <em class="v">τ</em> 下的工作集：若它在最近 <em class="v">τ</em> 秒内有过轮次到达，就是它的<b>全部前缀 KV</b>；否则为空集。没有中间状态——前篇的工作集是逐页进出窗口的，这里一旦活跃就是整个前缀，因为 attention 需要完整历史。</p>
+    <p>局部性也还在，只是换了地方：session 内部没有局部性可言——每轮都要摸全部历史 block，块级访问是“循环全扫”。<b>所有的局部性都在时间维度上</b>：刚说过话的 session 大概率马上还会说话（用户还在对话界面前），沉默越久回来的概率越低。这里的“轮次间隔”（分时系统文献里的老词 think time，指用户读回复、打字的时间，与模型的 thinking 无关）就是前篇引用串局部性的转世。</p>
   </div>
-  <h3>2.1 先看一个 session：前篇“一个程序随时间变化”的对应物</h3>
-  <p>前篇的主图画的是<b>一个程序</b>的访存流，工作集逐页进出窗口。这里对应的是<b>一个 session</b>——但它的工作集是<b>全有或全无</b>的：要么整个前缀 KV 驻留（沉默不超过 τ），要么整个被释放。于是一张图必须同时记两本账：<b>内存账</b>（灰色区域 = KV 驻留在 HBM 的时间段，高度 = context 大小）和<b>计算账</b>（每轮一根柱子 = 这一轮实际要算多少 token）。间隔不超过 τ 的轮次是蓝柱——只算新增的一小截；间隔超过 τ 的轮次是红柱——前缀已被释放，<b>整个历史全量重算</b>，柱子一下子顶到 context 全高：</p>
+  <p>既然工作集全有或全无，一张图就必须同时记<b>两本账</b>：<b>内存账</b>（灰色区域 = KV 驻留在 HBM 的时段，高度 = context 大小）和<b>计算账</b>（每轮一根柱子 = 这一轮实际要算多少 token）。间隔不超过 τ 的轮次是蓝柱——只算新增的一小截；间隔超过 τ 的轮次是红柱——前缀已被释放，<b>整个历史全量重算</b>，柱子一下子顶到 context 全高。这个 session 的常规节奏是 8–12 秒一轮，中间有 19、34、36 秒三次长停顿：</p>
   <div class="card">
     <div class="controls">
-      <label>保留窗口 <em class="v">τ</em><input type="range" id="soloTau" min="5" max="60" value="25"><output id="soloTauOut">25</output>s</label>
+      <label>保留窗口 <em class="v">τ</em><input type="range" id="soloTau" min="5" max="60" value="15"><output id="soloTauOut">15</output>s</label>
     </div>
     <div class="legend"><span><span class="key k1"></span>命中轮：只算新增 δ</span><span><span class="key" style="background:var(--status-critical)"></span>重算轮：整个前缀重算</span><span style="color:var(--muted)">灰色区域 = KV 驻留在 HBM 的时段</span></div>
     <div class="chart-wrap" id="soloPlot"></div>
@@ -201,8 +201,42 @@
   </div>
   <p>拖动 τ 就能看到那笔交易：<b>τ 调小，灰色面积缩水（HBM 省了），但红柱冒出来（重算账单来了）</b>——goodput 从 100% 一路掉。τ 调大则相反：红柱消失，代价是这个 session 沉默期间一直占着 HBM。KV 在计算的那一刻必须全量在场，谁也省不掉；τ 买卖的只是沉默期间留不留——<b>留 = 用 HBM 换掉未来的重算，丢 = 用未来的重算换出 HBM</b>。</p>
 
-  <h3>2.2 再把 9 个 session 放进同一块 HBM</h3>
-  <p>单个 session 的账算清了，才轮到多个 session 的总账。下面是 9 个 session、200 秒的模拟轨迹，上下两张图共用时间轴。先声明：<b>这张图刻意不含任何置换策略</b>——它画的是需求与容量的关系（Denning 的 Σ|W<sub>i</sub>| ≤ M 条件）；红区里到底谁踩谁、抢占怎么连锁，是第 5 节模拟的主题。<b>读图前先记住四件事——尤其是第三件，它是这一页和前篇最大的不同：</b></p>
+</section>
+
+<section id="tau">
+  <div class="kicker">参数选择</div>
+  <h2>3. τ 怎么选：还是在单个 session 上选</h2>
+  <p>τ 是每个 session 各自的保留期限，选它不需要多 session 出场。前篇里 τ 的选择靠 s(τ) 曲线的膝点，且缺页率恰好是它的斜率（m(τ) = s′(τ)）。这个恒等式在这里的转世是：<b>miss 率 ≈ 轮次间隔超过 τ 的概率</b>——s(τ) 花的是 HBM，m(τ) 省的是重算。两条曲线都对第 2 节那个 session 计算：</p>
+  <div class="card">
+    <p class="chart-title">该 session 的平均 HBM 占用 s(τ)</p>
+    <p class="chart-note">蓝点与第 2 节的 τ 滑块联动。递增趋饱和：τ 大到一定程度，多留的全是沉默期。</p>
+    <div class="chart-wrap" id="sTauChart"></div>
+    <p class="chart-title">该 session 的回头 miss 率 m(τ)：轮次间隔 &gt; τ 的比例</p>
+    <p class="chart-note">阶梯每下一级，就是一类停顿被 τ 覆盖住了：常规节奏 8–12 秒先被吃掉，然后是 19 秒，最后是 34 / 36 秒的长停顿。</p>
+    <div class="chart-wrap" id="mTauChart"></div>
+    <details class="tbl"><summary>查看数据表</summary><div id="tauTable"></div></details>
+  </div>
+  <p>膝点由<b>轮次间隔的分布</b>决定：τ 抬过常规对话节奏后 m(τ) 骤降、只剩长停顿；再往上抬，s(τ) 还在涨而 m(τ) 几乎不再降——多付的 HBM 全在给低概率的回头客和已离开的用户占座。真实系统对海量 session 的轮次间隔做同样的统计，工程形态就是 KV cache 的 TTL 该定多大。</p>
+</section>
+
+<section id="cost">
+  <div class="kicker">定量基础</div>
+  <h2>4. Miss 有多贵：99% 命中率是不够的</h2>
+  <p>前篇的支点是"缺页服务时间比一次访存慢 4 个数量级"。这里的对应物不是常数，而是一个随 session 变老不断增大的比值：<b>惩罚比 R = context 长度 ÷ 新一轮长度</b>。5 万 token 上下文的 session 发来 500 token 的一轮：命中时只算 500，全 miss 时要算 50500——R = 100 很日常，长文档场景轻松上千。于是单 session 的计算效率（有效计算占比）是：</p>
+  <div class="defbox"><p><em class="v">e</em> = 1 / (1 + (1 − <em class="v">h</em>) × <em class="v">R</em>)　　其中 h 为命中率，R = context / 轮长</p></div>
+  <div class="card">
+    <p class="chart-title">效率 e 与命中率 h（三条曲线：R = 10 / 100 / 1000）</p>
+    <div class="legend"><span><span class="key k1"></span>R = 10</span><span><span class="key k2"></span>R = 100</span><span><span class="key k3"></span>R = 1000</span></div>
+    <div class="chart-wrap" id="ehChart"></div>
+    <details class="tbl"><summary>查看数据表</summary><div id="ehTable"></div></details>
+  </div>
+  <p>读这张图的正确姿势是被它吓到：<b>R = 100 时，h = 99% 只换来 50% 的效率；h = 90% 只剩 9%</b>。前篇里"缺页间隔必须达到 19 倍 T 才有 95% 效率"的论证，转世成了"<b>miss 率必须远小于 1/R</b>"——而且 R 还在随 session 年龄增长。这就是为什么 KV cache 的命中率指标动辄要求 99.x%：不是洁癖，是效率公式的暴政。</p>
+</section>
+
+<section id="pool">
+  <div class="kicker">概念二的前奏</div>
+  <h2>5. 把 9 个 session 放进同一块 HBM：需求 vs 容量</h2>
+  <p>单个 session 的账已经算清：τ 定多大（第 3 节）、miss 多贵（第 4 节），都不需要别人出场。现在才轮到总账。<b>总工作集</b> <em class="v">W</em>(<em class="v">t</em>, <em class="v">τ</em>) = 最近 τ 秒内说过话的所有 session 的前缀之<b>并</b>，所需 HBM = 它们的 context 之和。下面是 9 个 session、200 秒的模拟轨迹，上下两张图共用时间轴。先声明：<b>这张图刻意不含任何置换策略</b>——它只画需求与容量的关系，回答 Denning 的条件 Σ|W<sub>i</sub>| ≤ M 有没有被破坏；红区里到底谁踩谁、抢占怎么连锁成雪崩，是第 6 节模拟的主题。<b>读图前先记住四件事——尤其是第三件：</b></p>
   <div class="defbox">
     <p><b>① 上图的一个点 = 一轮输入的到达。</b>它标记的是“这个 session 在这个时刻说了句话”，<b>不是</b>内存块。KV block 在下图里：一个 session 那条横带的<b>厚度</b>，才是它全部前缀 KV 的量。</p>
     <p><b>② 窗口 = “最近 τ 秒”这个时间段</b>——蓝色竖带，右边缘是当前时刻 t，宽度是 τ。与前篇是同一个概念，只是单位从“最近 τ 次访存”换成了“最近 τ 秒”。</p>
@@ -233,39 +267,9 @@
   <p><b>③ 带子只增不减。</b>单个 session 活着时 context 单调增长（没有收缩机制），所以同样的并发数下，抖动压力随 session 年龄悄悄上升——负载没变，系统也会滑向红区。</p>
 </section>
 
-<section id="tau">
-  <div class="kicker">参数选择</div>
-  <h2>3. τ 怎么选：需求曲线与回头 miss 率</h2>
-  <p>前篇里 τ 的选择靠 s(τ) 曲线的膝点，且缺页率恰好是它的斜率（m(τ) = s′(τ)）。这个恒等式在这里有直接的转世：把保留窗口定为 τ，则 <b>miss 率 ≈ 轮次间隔超过 τ 的概率</b>——s(τ) 花的是 HBM，m(τ) 省的是重算，两条曲线对同一份轨迹计算，夹出 τ 的合理区间：</p>
-  <div class="card">
-    <p class="chart-title">平均 HBM 需求 s(τ)（对上面同一轨迹计算）</p>
-    <p class="chart-note">蓝点与上一节的 τ 滑块联动。曲线递增趋饱和：τ 大到一定程度，多留的全是已死 session。</p>
-    <div class="chart-wrap" id="sTauChart"></div>
-    <p class="chart-title">回头 miss 率 m(τ)：轮次间隔 &gt; τ 的比例</p>
-    <p class="chart-note">每个非首轮到达时，若与上一轮的间隔超过 τ，它的前缀已被逐出，需要全量重算。</p>
-    <div class="chart-wrap" id="mTauChart"></div>
-    <details class="tbl"><summary>查看数据表</summary><div id="tauTable"></div></details>
-  </div>
-  <p>膝点的位置由<b>轮次间隔的分布</b>决定：把 τ 定在典型对话节奏（几十秒）之上，就能吃掉绝大多数命中；再往上抬，s(τ) 还在涨而 m(τ) 几乎不再降——多付的 HBM 全在给低概率的回头客和已离开的用户占座。工程上这就是 KV cache 的 TTL 应该怎么定的问题。</p>
-</section>
-
-<section id="cost">
-  <div class="kicker">定量基础</div>
-  <h2>4. Miss 有多贵：99% 命中率是不够的</h2>
-  <p>前篇的支点是"缺页服务时间比一次访存慢 4 个数量级"。这里的对应物不是常数，而是一个随 session 变老不断增大的比值：<b>惩罚比 R = context 长度 ÷ 新一轮长度</b>。5 万 token 上下文的 session 发来 500 token 的一轮：命中时只算 500，全 miss 时要算 50500——R = 100 很日常，长文档场景轻松上千。于是单 session 的计算效率（有效计算占比）是：</p>
-  <div class="defbox"><p><em class="v">e</em> = 1 / (1 + (1 − <em class="v">h</em>) × <em class="v">R</em>)　　其中 h 为命中率，R = context / 轮长</p></div>
-  <div class="card">
-    <p class="chart-title">效率 e 与命中率 h（三条曲线：R = 10 / 100 / 1000）</p>
-    <div class="legend"><span><span class="key k1"></span>R = 10</span><span><span class="key k2"></span>R = 100</span><span><span class="key k3"></span>R = 1000</span></div>
-    <div class="chart-wrap" id="ehChart"></div>
-    <details class="tbl"><summary>查看数据表</summary><div id="ehTable"></div></details>
-  </div>
-  <p>读这张图的正确姿势是被它吓到：<b>R = 100 时，h = 99% 只换来 50% 的效率；h = 90% 只剩 9%</b>。前篇里"缺页间隔必须达到 19 倍 T 才有 95% 效率"的论证，转世成了"<b>miss 率必须远小于 1/R</b>"——而且 R 还在随 session 年龄增长。这就是为什么 KV cache 的命中率指标动辄要求 99.x%：不是洁癖，是效率公式的暴政。</p>
-</section>
-
 <section id="cliff">
   <div class="kicker">概念二的转世</div>
-  <h2>5. 雪崩线：HBM、session 数与 context 的三角关系</h2>
+  <h2>6. 雪崩线：HBM、session 数与 context 的三角关系</h2>
   <p>现在把 N 个 session 放进同一块 HBM。每个 session 平均 context 为 <em class="v">c̄</em>，每轮新增 δ = 0.5k token。总需求 N·c̄ ≤ M 时人人全命中；一旦超过，块级 LRU 会遭遇缓存理论里的经典病理——<b>循环扫描略大于缓存的集合，命中率不是缓降而是阶跃归零</b>（每个 session 每轮全扫自己的前缀，回来时自己的块恰好是最旧的，刚好被挤光；数据库 buffer pool 的 scan thrashing 同款）。前篇的悬崖需要一个教学用的幂指数，这里的悬崖是结构性的，位置就在：</p>
   <div class="defbox"><p><b>雪崩线：M = N × c̄</b>　——HBM 越大养得起的 session 越多（线的斜率就是 c̄），跨过线即雪崩。</p></div>
   <div class="card">
@@ -301,7 +305,7 @@
 
 <section id="cure">
   <div class="kicker">药方</div>
-  <h2>6. 药方：还是工作集原理，但形态变了</h2>
+  <h2>7. 药方：还是工作集原理，但形态变了</h2>
   <p>前篇的药方是一句话：Σ|W<sub>i</sub>| ≤ M，装不下就整体挂起。转世到 KV cache，它裂解成一组互相配合的机制：</p>
   <div class="takeaways">
     <div class="card"><b>用 τ 管理保留（本页第 2、3 节）</b><p>沉默超过 τ 的 session 整体让位——既是逐出策略也是死亡推断。τ 对着轮次间隔分布的膝点选，工程形态就是 KV cache 的 TTL。</p></div>
@@ -314,7 +318,7 @@
 
 <section id="diff">
   <div class="kicker">收尾</div>
-  <h2>7. 像与不像：六个本质差异</h2>
+  <h2>8. 像与不像：六个本质差异</h2>
   <div class="takeaways">
     <div class="card"><b>① 局部性的单位变了</b><p>页 → session 前缀。session 内部每轮全扫历史，没有块级局部性；所有局部性都在"谁最近说过话"这个维度上。</p></div>
     <div class="card"><b>② 工作集只增不减，死亡不可观测</b><p>进程工作集随阶段漂移；session 前缀单调生长直到无声无息地死去。τ 窗口从优化手段变成推断死亡的唯一途径。</p></div>
@@ -454,7 +458,7 @@ function demandAt(t, tau) {
 }
 
 /* ---------- 可视化 2.1：单个 session 的两本账 ---------- */
-const SOLO_TURNS = [[10,6],[22,5],[34,6],[80,8],[92,5],[104,6],[150,7],[162,5]];
+const SOLO_TURNS = [[5,4],[14,3],[24,4],[33,3],[41,4],[75,5],[84,3],[95,4],[104,3],[140,5],[150,3],[159,4],[171,3],[190,4]];
 const SOLO = { turns: SOLO_TURNS };
 const SO = { W: 860, H: 300, ml: 66, mr: 16, mt: 26, mb: 36, ymax: 60 };
 const soX = t => SO.ml + t / TMAX * (SO.W - SO.ml - SO.mr);
@@ -506,10 +510,13 @@ function redrawSolo(tau) {
 }
 const soloTauSlider = document.getElementById("soloTau");
 soloTauSlider.addEventListener("input", () => {
-  document.getElementById("soloTauOut").textContent = soloTauSlider.value;
-  redrawSolo(+soloTauSlider.value);
+  const tau = +soloTauSlider.value;
+  document.getElementById("soloTauOut").textContent = tau;
+  redrawSolo(tau);
+  sTauChart.setMarker(snapEven(tau));
+  mTauChart.setMarker(snapEven(tau));
 });
-redrawSolo(25);
+redrawSolo(15);
 
 /* ---------- 可视化 A1：轮次到达 ---------- */
 const A1 = { W: 860, H: 262, ml: 66, mr: 16, mt: 24, mb: 34 };
@@ -630,7 +637,7 @@ const tOut = document.getElementById("tOut"), tauOut = document.getElementById("
 let curT = +tSlider.value, curTau = +tauSlider.value, curM = +mSlider.value;
 
 function updateVizA(structChanged) {
-  if (structChanged) { redrawStack(curTau, curM); sTauChart.setMarker(snapEven(curTau)); mTauChart.setMarker(snapEven(curTau)); }
+  if (structChanged) redrawStack(curTau, curM);
   tOut.textContent = curT; tauOut.textContent = curTau; mOut.textContent = curM;
   a1Win.setAttribute("x", a1X(Math.max(0, curT - curTau)));
   a1Win.setAttribute("width", a1X(curT) - a1X(Math.max(0, curT - curTau)));
@@ -674,24 +681,23 @@ playBtn.addEventListener("click", () => {
   timer = setInterval(() => { curT = curT >= TMAX ? 0 : curT + 1; tSlider.value = curT; updateVizA(false); }, 100);
 });
 
-/* ---------- 可视化 B：s(τ) 与 m(τ) ---------- */
+/* ---------- 可视化 B：s(τ) 与 m(τ)（对单个 session 计算） ---------- */
 const snapEven = v => clamp(Math.round(v / 2) * 2, 2, 60);
 const sTauPts = [], mTauPts = [];
-const gaps = [];
-SESSIONS.forEach(s => { for (let j = 1; j < s.turns.length; j++) gaps.push(s.turns[j][0] - s.turns[j - 1][0]); });
+const soloGaps = SOLO_TURNS.slice(1).map((t, k) => t[0] - SOLO_TURNS[k][0]);
 for (let tau = 2; tau <= 60; tau += 2) {
   let acc = 0;
-  for (let t = 0; t <= TMAX; t++) acc += demandAt(t, tau).sum;
+  for (let t = 0; t <= TMAX; t++) acc += residentAt(SOLO, t, tau) ? ctxAt(SOLO, t) : 0;
   sTauPts.push([tau, +(acc / (TMAX + 1)).toFixed(1)]);
-  mTauPts.push([tau, +(gaps.filter(g => g > tau).length / gaps.length).toFixed(3)]);
+  mTauPts.push([tau, +(soloGaps.filter(g => g > tau).length / soloGaps.length).toFixed(3)]);
 }
 const sTauChart = lineChart(document.getElementById("sTauChart"), {
-  h: 240, xMin: 2, xMax: 60, yMin: 0, yMax: 300,
-  xTicks: [2, 10, 20, 30, 40, 50, 60], yTicks: [0, 100, 200, 300],
-  xLabel: "保留窗口 τ（秒）", yLabel: "平均需求（千 token）",
+  h: 240, xMin: 2, xMax: 60, yMin: 0, yMax: 40,
+  xTicks: [2, 10, 20, 30, 40, 50, 60], yTicks: [0, 10, 20, 30, 40],
+  xLabel: "保留窗口 τ（秒）", yLabel: "平均占用（千 token）",
   xName: "τ", snap: snapEven, yFmt: fmtInt,
-  series: [{ name: "平均 HBM 需求 s(τ)", cls: "s1", points: sTauPts }],
-  ariaLabel: "平均 HBM 需求随窗口大小变化的折线图",
+  series: [{ name: "平均 HBM 占用 s(τ)", cls: "s1", points: sTauPts }],
+  ariaLabel: "单 session 平均 HBM 占用随窗口大小变化的折线图",
 });
 const mTauChart = lineChart(document.getElementById("mTauChart"), {
   h: 240, xMin: 2, xMax: 60, yMin: 0, yMax: 1,
@@ -701,7 +707,7 @@ const mTauChart = lineChart(document.getElementById("mTauChart"), {
   series: [{ name: "回头 miss 率 m(τ)", cls: "s1", points: mTauPts }],
   ariaLabel: "回头 miss 率随窗口大小变化的折线图",
 });
-sTauChart.setMarker(snapEven(curTau)); mTauChart.setMarker(snapEven(curTau));
+sTauChart.setMarker(snapEven(+soloTauSlider.value)); mTauChart.setMarker(snapEven(+soloTauSlider.value));
 document.getElementById("tauTable").innerHTML =
   "<table><tr><th>τ (s)</th><th>s(τ) k tok</th><th>m(τ)</th></tr>" +
   sTauPts.map((p, i) => `<tr><td>${p[0]}</td><td>${p[1]}</td><td>${(mTauPts[i][1] * 100).toFixed(1)}%</td></tr>`).join("") +
