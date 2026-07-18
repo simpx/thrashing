@@ -104,7 +104,13 @@
   .poolside { flex: 1 1 260px; min-width: 240px; }
   #poolLog { min-height: 3.6em; }
   #stackBox { position: relative; height: 372px; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); overflow: hidden; }
-  .band { position: absolute; left: 6px; right: 6px; border-radius: 5px; overflow: hidden; display: flex; align-items: flex-start; padding: 2px 8px 0; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
+  .band { position: absolute; left: 6px; right: 6px; border-radius: 5px; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; padding: 2px 8px 0; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
+  .band .bsub { font-weight: 400; font-size: 10px; opacity: .92; }
+  table.sstats { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+  .sstats td { border-top: 1px solid var(--grid); padding: 4px 8px 4px 0; white-space: nowrap; }
+  .sstats td.num { text-align: right; }
+  .sstats .sdot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .sstats .lost { color: var(--status-critical); font-weight: 600; }
   .band.hitflash { animation: fhit .6s ease-out; }
   @keyframes fhit { 0% { filter: brightness(1.45); } 100% { filter: none; } }
   #ghostWash { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none;
@@ -234,13 +240,14 @@
           <div class="tile"><div class="tl">重算合计</div><div class="tv" id="distRe">—</div><div class="td">落在线下的尾巴总量</div></div>
           <div class="tile"><div class="tl">池子 goodput</div><div class="tv" id="distGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
         </div>
+        <div id="sessStats"></div>
       </div>
     </div>
     <p class="chart-title">时序：33 轮的到达时刻（点击 / 拖动可跳到任意时刻）</p>
     <p class="chart-note">红圈 = 在当前 M 下回来要重算的轮；实心 = 回放进度。</p>
     <div class="chart-wrap" id="timeStrip"></div>
   </div>
-  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。</p>
+  <p>盯着蓝色的<b>会话 1</b> 看一遍回放：+34s / +36s / +19s 三次长停顿后回来时，尾巴都已沉到线下——闪红的 <b>10k / 33k / 18k 正是第 2 节账单里的三段红色</b>（同一份数据）。再拖容量线：<b>拉到 240k 红色绝迹；压到 60k 几乎每次回头都在闪红</b>——那就是下一节悬崖的前奏。统计表里还有个扎眼的对比：<b>占着 36k 再不回头的会话 4 一分不亏；胖会话 2 四次回头三次重算，独自亏掉 165k</b>——LRU 的账单只寄给回头的人，而且按体重收费。</p>
 </section>
 
 <section id="cliff">
@@ -505,17 +512,20 @@ document.getElementById("ehTable").innerHTML =
   const logEl = document.getElementById("poolLog");
   let M = +mSlider.value;
   let idx = 0, ctx = [0, 0, 0, 0, 0], order = [], sumNew = 0, seenReturns = [];
-  let lastEv = null;
+  let lastEv = null, lastSpoke = [null, null, null, null, null];
 
   function layout() {
     let off = 0;
+    const t = lastEv ? lastEv.u : 0;
     for (const si of order) {
-      const b = bands[si];
+      const b = bands[si], h = ctx[si] * S, age = t - lastSpoke[si];
       b.style.display = "flex";
       b.style.top = (PAD + off * S) + "px";
-      b.style.height = Math.max(3, ctx[si] * S - 1) + "px";
-      b.textContent = ctx[si] * S >= 15 ? `会话 ${si + 1} · ${ctx[si]}k` : "";
-      b.title = `会话 ${si + 1}：context ${ctx[si]}k，深度 ${off}k–${off + ctx[si]}k`;
+      b.style.height = Math.max(3, h - 1) + "px";
+      b.innerHTML = h >= 15
+        ? `<span>会话 ${si + 1} · ${ctx[si]}k</span>` + (h >= 30 && age > 0 ? `<span class="bsub">闲 ${age}s</span>` : "")
+        : "";
+      b.title = `会话 ${si + 1}：context ${ctx[si]}k，深度 ${off}k–${off + ctx[si]}k，闲置 ${age}s`;
       off += ctx[si];
     }
     bands.forEach((b, si) => { if (!order.includes(si)) b.style.display = "none"; });
@@ -523,7 +533,7 @@ document.getElementById("ehTable").innerHTML =
   function layoutM() {
     const y = PAD + M * S;
     divider.style.top = y + "px";
-    divider.querySelector(".tag").textContent = `容量 M = ${M}k · 以下已逐出`;
+    divider.querySelector(".tag").textContent = `M = ${M}k`;
     wash.style.top = (y + 1) + "px";
   }
   function tiles() {
@@ -533,6 +543,26 @@ document.getElementById("ehTable").innerHTML =
     document.getElementById("distMissd").textContent = seenReturns.length ? (miss ? "尾巴落在线下" : "全部命中") : "";
     document.getElementById("distRe").textContent = re + "k";
     document.getElementById("distGp").textContent = sumNew ? Math.round(sumNew / (sumNew + re) * 100) + "%" : "—";
+    stats();
+  }
+  function stats() {
+    const t = lastEv ? lastEv.u : 0;
+    const per = SESSIONS.map(() => ({ ret: 0, miss: 0, lost: 0 }));
+    for (const r of seenReturns) {
+      const v = recompAt(r, M), s = per[r.si];
+      s.ret++; if (v > 0) { s.miss++; s.lost += v; }
+    }
+    document.getElementById("sessStats").innerHTML =
+      '<table class="sstats">' + SESSIONS.map((sn, si) => {
+        const dot = `<span class="sdot" style="background:var(--series-${si + 1})"></span>`;
+        if (lastSpoke[si] == null)
+          return `<tr style="opacity:.45"><td>${dot}会话 ${si + 1}</td><td class="num">未上线</td><td class="num"></td><td class="num"></td></tr>`;
+        const s = per[si];
+        return `<tr><td>${dot}会话 ${si + 1}</td>` +
+          `<td class="num">回头 ${s.ret}，命中 ${s.ret - s.miss}</td>` +
+          `<td class="num">${s.lost ? `<span class="lost">亏 ${s.lost}k</span>` : "亏 0k"}</td>` +
+          `<td class="num">闲 ${t - lastSpoke[si]}s</td></tr>`;
+      }).join("") + "</table>";
   }
   function log() {
     if (!lastEv) return;
@@ -565,6 +595,7 @@ document.getElementById("ehTable").innerHTML =
     }
     sumNew += e.d;
     ctx[e.si] += e.d;
+    lastSpoke[e.si] = e.u;
     order = [e.si, ...order.filter(s => s !== e.si)];
     lastEv = { ...e, n: idx };
     layout(); tiles(); log(); refreshStrip();
@@ -572,6 +603,7 @@ document.getElementById("ehTable").innerHTML =
   }
   function reset() {
     idx = 0; ctx = [0, 0, 0, 0, 0]; order = []; sumNew = 0; seenReturns = []; lastEv = null;
+    lastSpoke = [null, null, null, null, null];
     bands.forEach(b => { b.style.display = "none"; });
     layout(); tiles(); refreshStrip();
     logEl.textContent = "回放中…";
@@ -628,19 +660,21 @@ document.getElementById("ehTable").innerHTML =
   const dots = EVENTS.map(e => {
     const c = svgEl("circle", { cx: tsX(e.u), cy: tsY(e.si), r: 3.6 }, tsSvg);
     c.style.fill = `var(--series-${e.si + 1})`;
-    svgEl("title", {}, c).textContent = `会话 ${e.si + 1} 第 ${e.k + 1} 轮，t=${e.u}s，新增 ${e.d}k`;
-    return c;
+    return { c, tt: svgEl("title", {}, c) };
   });
   const posSlider = document.getElementById("poolPos"), posOut = document.getElementById("poolPosOut");
   posSlider.max = EVENTS.length;
   function refreshStrip() {
     posSlider.value = idx; posOut.textContent = idx;
     EVENTS.forEach((e, i) => {
-      const c = dots[i];
+      const { c, tt } = dots[i];
       c.style.opacity = i < idx ? 1 : .25;
-      const miss = e.k > 0 && recompAt(RET.get(e.si * 100 + e.k), M) > 0;
-      c.style.stroke = miss ? "var(--status-critical)" : "none";
-      c.style.strokeWidth = miss ? 2 : 0;
+      const re = e.k > 0 ? recompAt(RET.get(e.si * 100 + e.k), M) : 0;
+      c.style.stroke = re > 0 ? "var(--status-critical)" : "none";
+      c.style.strokeWidth = re > 0 ? 2 : 0;
+      c.setAttribute("r", re > 0 ? (3.6 + Math.min(3.4, re / 18)).toFixed(1) : 3.6);
+      tt.textContent = `会话 ${e.si + 1} 第 ${e.k + 1} 轮，t=${e.u}s，新增 ${e.d}k` +
+        (e.k === 0 ? "（冷启动）" : re > 0 ? `，此轮重算 ${re}k` : "，全命中");
     });
     if (lastEv) {
       playhead.setAttribute("x1", tsX(lastEv.u)); playhead.setAttribute("x2", tsX(lastEv.u));
