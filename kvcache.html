@@ -99,10 +99,16 @@
   .seg-re  { fill: var(--status-critical); opacity: .82; stroke: var(--surface-1); stroke-width: 2; }
   .cap-line { stroke: var(--text-secondary); stroke-width: 1.5; }
   .cap-text { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
-  .poolwrap { display: flex; gap: 18px; flex-wrap: wrap; }
-  .stackcol { flex: 0 0 200px; max-width: 100%; }
-  .poolside { flex: 1 1 260px; min-width: 240px; }
+  .poolwrap { display: grid; grid-template-columns: 200px minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 0 18px; }
+  .stackcol { grid-row: 1 / 3; min-width: 0; }
+  .poolinfo, .poolstats { min-width: 0; }
   #poolLog { min-height: 3.6em; }
+  @media (max-width: 640px) {
+    .poolwrap { display: flex; flex-direction: column; }
+    .poolinfo { order: -1; }
+    .stackcol { max-width: 260px; }
+    #poolLog { min-height: 0; }
+  }
   #stackBox { position: relative; height: 372px; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--page); overflow: hidden; }
   .band { position: absolute; left: 6px; right: 6px; border-radius: 5px; overflow: hidden; display: flex; flex-direction: column; align-items: flex-start; padding: 2px 8px 0; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
   .band .bsub { font-weight: 400; font-size: 10px; opacity: .92; }
@@ -235,10 +241,12 @@
         <p class="chart-note">带子高度 = 该会话的 context；红色烧痕 = 这段前缀被逐出重算过（越深遍数越多）；虚线可拖。</p>
         <div id="stackBox"></div>
       </div>
-      <div class="poolside">
+      <div class="poolinfo">
         <p class="chart-title">正在发生什么</p>
         <p class="readout" id="poolLog"></p>
         <p class="chart-note" id="poolNext"></p>
+      </div>
+      <div class="poolstats">
         <div class="tiles">
           <div class="tile"><div class="tl">超线的回头轮</div><div class="tv" id="distMiss">—</div><div class="td" id="distMissd"></div></div>
           <div class="tile"><div class="tl">重算合计</div><div class="tv" id="distRe">—</div><div class="td">落在线下的尾巴总量</div></div>
