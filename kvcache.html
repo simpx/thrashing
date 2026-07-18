@@ -216,6 +216,7 @@
       <button class="play" id="poolPlay">▶ 从头回放</button>
       <button class="play" id="poolStep">单步</button>
       <button class="play" id="poolFF">⏭ 跳到结局</button>
+      <label>进度<input type="range" id="poolPos" min="0" max="33" step="1" value="33"><output id="poolPosOut">33</output>/33 轮</label>
       <label>速度<input type="range" id="poolSpeed" min="0.5" max="4" step="0.5" value="1.5"><output id="poolSpeedOut">1.5</output>轮/s</label>
       <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="60" max="240" step="10" value="120"><output id="mOut">120</output>k</label>
     </div>
@@ -630,7 +631,10 @@ document.getElementById("ehTable").innerHTML =
     svgEl("title", {}, c).textContent = `会话 ${e.si + 1} 第 ${e.k + 1} 轮，t=${e.u}s，新增 ${e.d}k`;
     return c;
   });
+  const posSlider = document.getElementById("poolPos"), posOut = document.getElementById("poolPosOut");
+  posSlider.max = EVENTS.length;
   function refreshStrip() {
+    posSlider.value = idx; posOut.textContent = idx;
     EVENTS.forEach((e, i) => {
       const c = dots[i];
       c.style.opacity = i < idx ? 1 : .25;
@@ -661,6 +665,16 @@ document.getElementById("ehTable").innerHTML =
   tsSvg.addEventListener("pointerdown", ev => { tsDown = true; tsSvg.setPointerCapture(ev.pointerId); tsPick(ev); });
   tsSvg.addEventListener("pointermove", ev => { if (tsDown) tsPick(ev); });
   tsSvg.addEventListener("pointerup", () => tsDown = false);
+  /* 进度滑杆：拖到第几轮，栈就演化到第几轮 */
+  posSlider.addEventListener("input", () => {
+    stop();
+    const target = +posSlider.value;
+    if (target < idx) reset();
+    while (idx < target) step(false);
+    if (!lastEv) logEl.textContent = "在起点。按 ▶ 播放、单步，或拖动进度。";
+    playBtn.textContent = idx >= EVENTS.length ? "▶ 从头回放" : (idx ? "▶ 继续" : "▶ 播放");
+    refreshStrip();
+  });
   /* 单步 */
   document.getElementById("poolStep").addEventListener("click", () => {
     stop();
