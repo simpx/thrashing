@@ -107,7 +107,9 @@
   .band { position: absolute; left: 6px; right: 6px; border-radius: 5px; overflow: hidden; display: flex; align-items: flex-start; padding: 2px 8px 0; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.4); box-shadow: inset 0 0 0 1px rgba(255,255,255,.22); transition: top .35s cubic-bezier(.3,.8,.35,1), height .35s cubic-bezier(.3,.8,.35,1); }
   .band.hitflash { animation: fhit .6s ease-out; }
   @keyframes fhit { 0% { filter: brightness(1.45); } 100% { filter: none; } }
-  #ghostWash { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; background: color-mix(in srgb, var(--page) 64%, transparent); pointer-events: none; }
+  #ghostWash { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; pointer-events: none;
+    background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--page) 55%, transparent) 0 3px, transparent 3px 9px),
+                color-mix(in srgb, var(--page) 28%, transparent); }
   #mDivider { position: absolute; left: 0; right: 0; z-index: 3; border-top: 2px dashed var(--series-1); cursor: grab; touch-action: none; }
   #mDivider:active { cursor: grabbing; }
   #mDivider::before { content: ""; position: absolute; left: 0; right: 0; top: -9px; height: 18px; }
