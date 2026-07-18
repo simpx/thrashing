@@ -218,7 +218,7 @@
 <section id="cliff">
   <div class="kicker">关键点三（下）</div>
   <h2>5. 雪崩线：跨过去就是断崖</h2>
-  <p>上一节的池子只有 5 个会话；现在把负载推到极限。设 N 个 session 平均 context 为 <em class="v">c̄</em>、每轮新增 0.5k token。总需求不超容量时人人全命中；一旦超过，<b>命中率不是缓降而是阶跃归零</b>——每个 session 每轮全扫自己的前缀，回来时自己的块恰好最旧、刚好被挤光。悬崖的位置就在：</p>
+  <p>上一节的柱子高矮不一，是因为 5 个会话节奏各异——有人插空、有人沉默。现在把负载推到极限：N 个 session 轮流说话、context 都是 <em class="v">c̄</em>、每轮新增 0.5k token。这时<b>每根柱子都一样高</b>：stack distance = 别人垫的 (N−1)·c̄ + 自己的 c̄ = <b>N·c̄</b>。柱子同高，结局就只有两种：整齐地全在 M 线下（人人全命中），或整齐地全超线（人人重算）——<b>命中率不是缓降而是阶跃归零</b>。悬崖的位置就在：</p>
   <div class="defbox"><p><b>雪崩线：N × c̄ = M（即 Σcontext = M）</b>　——HBM 越大养得起的 session 越多，跨过线即雪崩。</p></div>
   <div class="card">
     <div class="controls">
@@ -234,7 +234,7 @@
     <div class="legend"><span><span class="key k1"></span>块级 LRU 超卖</span><span><span class="key k2"></span>session 级准入</span></div>
     <div class="chart-wrap" id="cliffChart"></div>
     <details class="tbl"><summary>模型公式与推导</summary>
-      <p>块级 LRU：session 回来时，缓存里是比它更新的 N−1 个 session 的 context，留给它的空间是 M − (N−1)·c̄。命中率 h = clamp((M − (N−1)·c̄) / c̄, 0, 1)——在宽度仅 c̄ 的过渡带内从 1 跌到 0。每轮实际算量 = δ + (1−h)·c̄，<b>goodput = δ / (δ + (1−h)·c̄)</b>。</p>
+      <p>块级 LRU：每个回头轮的 stack distance = N·c̄，重算量 = clamp(N·c̄ − M, 0, c̄)（第 4 节的规则），故命中率 h = clamp((M − (N−1)·c̄) / c̄, 0, 1)——在宽度仅 c̄ 的过渡带内从 1 跌到 0。每轮实际算量 = δ + (1−h)·c̄，<b>goodput = δ / (δ + (1−h)·c̄)</b>。</p>
       <p>session 级准入：K = ⌊M / c̄⌋ 个 session 驻留、全命中；其余 N−K 个不驻留，每轮自付全量重算，但不侵占驻留者的空间。goodput = N·δ / (K·δ + (N−K)·(δ + c̄))。</p>
       <p>准入控制消灭不了工作量（超额 session 开口就得算，绿线也会下垂），它消灭的是<b>互相踩踏</b>：驻留的 K 个 session 效率恒为 100%，损失被隔离在超额者身上。</p>
     </details>
