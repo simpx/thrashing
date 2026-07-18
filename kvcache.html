@@ -123,7 +123,8 @@
   .band .bsub { font-weight: 400; font-size: 9.5px; opacity: .92; }
   .band span { position: relative; z-index: 1; }
   .band .heat { position: absolute; left: 0; right: 0; z-index: 0; background: var(--status-critical); }
-  .band .band-st { position: absolute; left: 0; right: 0; display: flex; align-items: flex-end; justify-content: flex-start; padding: 0 7px 1px; font-size: 9px; font-weight: 600; box-shadow: inset 0 1px 0 color-mix(in srgb, var(--page) 55%, transparent); }
+  .band .band-st { position: absolute; left: 0; right: 0; display: flex; align-items: flex-end; justify-content: flex-start; padding: 0 7px 1px; font-size: 9px; font-weight: 600; }
+  .band .band-st.sep { box-shadow: inset 0 1px 0 color-mix(in srgb, var(--page) 55%, transparent); }
   .band .band-st .st-t { opacity: .85; }
   table.sstats { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
   .sstats td { border-top: 1px solid var(--grid); padding: 4px 8px 4px 0; white-space: nowrap; }
@@ -567,7 +568,7 @@ document.getElementById("ehTable").innerHTML =
       for (let k = 0; k < n; k++) {
         const a0 = k ? SCUM[si][k - 1] : 0, a1 = SCUM[si][k], sh = (a1 - a0) * S;
         const pct = n > 1 ? Math.round(100 - 25 * k / (n - 1)) : 100;
-        st += `<div class="band-st" style="top:${(a0 * S).toFixed(1)}px;height:${Math.max(1, sh - 0.5).toFixed(1)}px;` +
+        st += `<div class="band-st${sh >= 10 && k > 0 ? " sep" : ""}" style="top:${(a0 * S).toFixed(1)}px;height:${Math.max(1, sh - 0.5).toFixed(1)}px;` +
               `background:color-mix(in srgb, var(--series-${si + 1}) ${pct}%, var(--page))" ` +
               `title="第 ${k + 1} 轮出生（t=${SESSIONS[si].turns[k][0]}s）· 本层 ${a1 - a0}k · 此后被触碰 ${n - 1 - k} 次（命中或重算）">` +
               (sh >= 28 && k > 0 ? `<span class="st-t">轮 ${k + 1} · +${a1 - a0}k</span>` : "") + `</div>`;
