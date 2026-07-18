@@ -95,8 +95,6 @@
   .seg-new { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 2; }
   .seg-re  { fill: var(--status-critical); opacity: .82; stroke: var(--surface-1); stroke-width: 2; }
   .kv-band { fill: var(--band-fill); stroke: var(--surface-1); stroke-width: 2; }
-  .kv-debt { fill: var(--status-critical); opacity: .13; }
-  .demand-line { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
   .cap-line { stroke: var(--text-secondary); stroke-width: 1.5; }
   .cap-text { fill: var(--text-secondary); font-size: 12px; font-weight: 600; }
   .now-seg  { fill: var(--series-1); stroke: var(--surface-1); stroke-width: 1.5; }
@@ -139,7 +137,7 @@
   <p class="backlink"><a href="index.html">← 前篇：工作集与抖动 — 看懂 Denning 的 1968</a></p>
   <div class="kicker">经典理论的现代转世</div>
   <h1>KV Cache 的工作集与雪崩<br>1968 年的理论如何解释 LLM 推理</h1>
-  <p class="sub">Prefill 节点的 HBM 里塞着许多 session 的 KV cache。谁该留、留多久、超卖了会发生什么——这组问题和 1968 年“给每个进程多少内存”的问题同构。本页只讲四个关键点，一节一个。</p>
+  <p class="sub">Prefill 节点的 HBM 里塞着许多 session 的 KV cache。谁该留、留多久、超卖了会发生什么——这组问题和 1968 年“给每个进程多少内存”的问题同构。本页只讲四个关键点。</p>
 </header>
 
 <section id="map">
@@ -151,53 +149,51 @@
     <tr><td>进程</td><td>Session（多轮对话）</td></tr>
     <tr><td>内存页</td><td>KV cache block</td></tr>
     <tr><td>物理内存 M</td><td>HBM 中的 KV cache 池</td></tr>
-    <tr><td>缺页 → 读磁盘</td><td>缓存不在 → <b>重算</b>（re-prefill）</td></tr>
-    <tr><td>缺页服务时间 T（常数）</td><td>重算耗时 ∝ 丢失的 token 数</td></tr>
+    <tr><td>缺页 → 读磁盘</td><td>缓存不在 → <b>重算</b>（re-prefill），耗时 ∝ 丢失的 token 数</td></tr>
     <tr><td>CPU 利用率</td><td><b>Goodput</b>：GPU 算力中花在“新 token”上的比例</td></tr>
   </table>
-  <p>两个先说清的澄清：<b>① miss 不是卡死，是重算</b>——token 文本就是“后备存储”，任何 KV 都能重新算出来，只是贵；<b>② 逐出只能从尾部开始</b>——保留最长连续前缀就能省下等长的重算，但从中间挖洞，洞之后的块全部作废。</p>
+  <p>一个先说清的澄清：<b>miss 不是卡死，是重算</b>——token 文本就是“后备存储”，任何 KV 都能重新算出来，只是贵。</p>
 </section>
 
 <section id="ws">
   <div class="kicker">关键点一</div>
   <h2>2. 一个 session 需要什么：全部前缀</h2>
   <div class="defbox">
-    <p><b>关键事实</b>　计算任何一轮都要对全部历史做 attention——所以一个 session 的“工作集”就是它的<b>整个前缀 KV</b>：全有或全无，逐轮只增不减。前篇的工作集逐页进出窗口；这里没有那种弹性。</p>
+    <p><b>关键事实</b>　计算任何一轮都要对全部历史做 attention——所以一个 session 的“工作集”就是它的<b>整个前缀 KV</b>：全有或全无，逐轮只增不减。</p>
   </div>
   <p>下面是一个 session 的 14 轮账单，每行一轮。几次长停顿期间，它的缓存被池子<b>从尾部啃掉了一部分或全部</b>（谁啃的、为什么，第 4 节见分晓）：</p>
   <div class="card">
     <div class="legend"><span><span class="key" style="background:var(--band-fill);width:14px;height:8px"></span>还在 HBM 的前缀头部（免费复用）</span><span><span class="key" style="background:var(--status-critical)"></span>被啃掉的尾部（本轮重算）</span><span><span class="key k1"></span>本轮新增（必须算）</span></div>
-    <p class="chart-note"><b>每一行 = 一轮到达时的 prefill 账单</b>：行的总长 = 这一轮的 context；<b>彩色部分（红 + 蓝）= 这一轮实际要算的量</b>。行首括号 = 距上一轮的间隔；沉默越久，被啃掉的尾巴越长。</p>
+    <p class="chart-note"><b>每行 = 一轮的 prefill 账单，彩色（红＋蓝）= 本轮实际要算的量</b>；行首括号 = 距上一轮的秒数，沉默越久被啃掉的尾巴越长。</p>
     <div class="chart-wrap" id="soloPlot"></div>
     <div class="tiles">
       <div class="tile"><div class="tl">总计算量</div><div class="tv" id="soloCost">—</div><div class="td" id="soloWaste"></div></div>
       <div class="tile"><div class="tl">该 session 的 goodput</div><div class="tv" id="soloGp">—</div><div class="td">新 token ÷ 实际计算</div></div>
     </div>
   </div>
-  <p>再记住一件事：<b>用户离开时不会通知任何人</b>——沉默 34 秒的人和永远走了的人，在服务端看起来一模一样。谁该继续占着 HBM？只能由池子的规则决定（第 4 节）。</p>
 </section>
 
 <section id="cost">
   <div class="kicker">关键点二</div>
   <h2>3. Miss 有多贵：99% 命中率是不够的</h2>
-  <p>前篇的支点是“缺页服务时间比一次访存慢 4 个数量级”。这里的对应物是<b>惩罚比 R = context 长度 ÷ 新一轮长度</b>：5 万 token 上下文的 session 发来 500 token 的一轮，命中只算 500，全 miss 要算 50500——R = 100 很日常，长文档场景轻松上千。单 session 的计算效率（有效计算占比）是：</p>
+  <p>KV 世界的惩罚是<b>惩罚比 R = context 长度 ÷ 新一轮长度</b>：5 万 token 上下文的 session 发来 500 token 的一轮，命中只算 500，全 miss 要算 50500——R = 100 很日常，长文档场景轻松上千。单 session 的计算效率（有效计算占比）是：</p>
   <div class="defbox"><p><em class="v">e</em> = 1 / (1 + (1 − <em class="v">h</em>) × <em class="v">R</em>)　　其中 h 为命中率，R = context / 轮长</p></div>
   <div class="card">
-    <p class="chart-title">效率 e 与命中率 h（三条曲线：R = 10 / 100 / 1000）</p>
+    <p class="chart-title">效率 e 与命中率 h</p>
     <div class="legend"><span><span class="key k1"></span>R = 10</span><span><span class="key k2"></span>R = 100</span><span><span class="key k3"></span>R = 1000</span></div>
     <div class="chart-wrap" id="ehChart"></div>
     <details class="tbl"><summary>查看数据表</summary><div id="ehTable"></div></details>
   </div>
-  <p>读这张图的正确姿势是被它吓到：<b>R = 100 时，h = 99% 只换来 50% 的效率；h = 90% 只剩 9%</b>。前篇“缺页间隔必须达到 19 倍 T 才有 95% 效率”的论证，转世成了“<b>miss 率必须远小于 1/R</b>”。KV cache 的命中率指标动辄要求 99.x%，不是洁癖，是效率公式的暴政。</p>
+  <p><b>R = 100 时，h = 99% 只换来 50% 的效率；h = 90% 只剩 9%</b>——<b>miss 率必须远小于 1/R</b>。这就是为什么 KV cache 的命中率指标动辄要求 99.x%。</p>
 </section>
 
 <section id="pool">
   <div class="kicker">关键点三（上）</div>
   <h2>4. 把 9 个 session 放进一个 LRU 池</h2>
-  <p>现在回答“第 2 节里是谁挤掉了缓存”。池子的规则只有一条（vLLM / SGLang 的真实行为）：<b>块进来就留下；只有新的分配需要空间时，才从“最久没说话”的 session 的尾部逐出。</b>第 2 节的账单图，就是从下面这张全景里抽出一个 session、把它的每个点展开成一行。</p>
+  <p>第 2 节的账单，就是从下面这张全景里抽出一个 session、把它的每个点展开成一行。池子的规则只有一条（vLLM / SGLang 的真实行为）：<b>块进来就留下；只有新的分配需要空间时，才从“最久没说话”的 session 的尾部逐出。</b></p>
   <div class="defbox">
-    <p><b>① 一个点 = 一轮到达</b>（画在它自己 session 的带子里）：<b>蓝 = 前缀全在，免费复用；红 = 沉默期间被挤过</b>，本轮要付第 3 节的 R 倍账单。</p>
-    <p><b>② 带子 = 驻留的块，被削顶 = 正在被逐出</b>（凶手是同一时刻长高的另一条带子）；虚线 = 内存无限时本可缓存的总量，它与堆顶之间的浅红楔子 = 已被挤出的块——谁回来谁付账。</p>
+    <p><b>① 一个点 = 一轮到达</b>（画在它自己 session 的带子里）：<b>蓝 = 前缀全在，免费复用；红 = 沉默期间被啃过</b>，本轮要付第 3 节的 R 倍账单。</p>
+    <p><b>② 带子 = 驻留的块，被削顶 = 正在被逐出。</b></p>
   </div>
 
   <div class="card">
@@ -205,22 +201,20 @@
       <button class="play" id="playBtn">▶ 播放</button>
       <label>时刻 <em class="v">t</em><input type="range" id="tSlider" min="0" max="200" value="100"><output id="tOut">100</output></label>
       <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="80" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
-      <label><input type="checkbox" id="axisDist"> 横轴改为累计分配量（distance）</label>
     </div>
-    <p class="chart-title">LRU 池全景：轮次（点）、驻留（带）、逐出（空缺与削顶）、容量（横线）</p>
+    <p class="chart-title">LRU 池全景</p>
     <div class="chart-wrap" id="stackPlot"></div>
-    <p class="chart-note" id="distNote" style="display:none"><b>distance 轴下的几何事实：每条带子在最后一个点之后的尾长都 ≈ M。</b>“一段缓存能活多久”与“容量有多大”，在这个坐标系里是同一个数字。</p>
-    <p class="readout">t = <code id="roT"></code>　池中 session <code id="roK"></code>　已用 <code id="roUsed"></code> / 容量 <code id="roM"></code>　已挤出 <code id="roDebt"></code></p>
+    <p class="readout">t = <code id="roT"></code>　池中 session <code id="roK"></code>　已用 <code id="roUsed"></code> / 容量 <code id="roM"></code></p>
   </div>
 
-  <p>三件值得盯着看的事：<b>会话 2 死了，但它的带子赖到被挤才走</b>——LRU 赌“最老的最可能已死”，赌对免费、赌错付 R 倍；<b>会话 3 停顿 61 秒回来付了全额账单</b>——把 M 拉大到需求线之上，同一个点变蓝：miss 是容量的错，不是它的错；<b>带子只增不减</b>——session 数不变，需求也在自己爬坡。</p>
+  <p>两件值得盯着看的事：<b>会话 2 死了，但它的带子赖到被挤才走</b>——LRU 赌“最老的最可能已死”，赌对免费、赌错付 R 倍；<b>会话 3 停顿 61 秒回来付了全额账单</b>——把 M 拉大，同一个点变蓝：miss 是容量的错，不是它的错。</p>
 </section>
 
 <section id="cliff">
   <div class="kicker">关键点三（下）</div>
   <h2>5. 雪崩线：跨过去就是断崖</h2>
-  <p>上一节的池子只有 9 个 session；现在把负载推到极限。设 N 个 session 平均 context 为 <em class="v">c̄</em>、每轮新增 δ = 0.5k token。总需求 N·c̄ ≤ M 时人人全命中；一旦超过，LRU 池遭遇缓存理论的经典病理——<b>循环扫描略大于缓存的集合，命中率不是缓降而是阶跃归零</b>（每个 session 每轮全扫自己的前缀，回来时自己的块恰好最旧、刚好被挤光）。前篇的悬崖需要一个教学用的幂指数；这里的悬崖是结构性的，位置就在：</p>
-  <div class="defbox"><p><b>雪崩线：M = N × c̄</b>　——HBM 越大养得起的 session 越多（斜率就是 c̄），跨过线即雪崩。</p></div>
+  <p>上一节的池子只有 9 个 session；现在把负载推到极限。设 N 个 session 平均 context 为 <em class="v">c̄</em>、每轮新增 0.5k token。总需求不超容量时人人全命中；一旦超过，<b>命中率不是缓降而是阶跃归零</b>——每个 session 每轮全扫自己的前缀，回来时自己的块恰好最旧、刚好被挤光。悬崖的位置就在：</p>
+  <div class="defbox"><p><b>雪崩线：N × c̄ = M（即 Σcontext = M）</b>　——HBM 越大养得起的 session 越多，跨过线即雪崩。</p></div>
   <div class="card">
     <div class="controls">
       <label>session 数 <em class="v">N</em><input type="range" id="nSlider" min="1" max="32" value="8"><output id="nOut">8</output></label>
@@ -229,22 +223,21 @@
     </div>
     <div class="tiles">
       <div class="tile"><div class="tl">命中率 h</div><div class="tv" id="tileH">—</div><div class="td" id="tileHd"></div></div>
-      <div class="tile"><div class="tl">每轮计算放大</div><div class="tv" id="tileA">—</div><div class="td">实际算量 ÷ 有效算量</div></div>
       <div class="tile"><div class="tl">Goodput</div><div class="tv" id="tileG">—</div><div class="td">GPU 利用率仍是 100%</div></div>
     </div>
     <p class="chart-title">Goodput 与 session 数 N（当前 M、c̄ 下）</p>
-    <div class="legend"><span><span class="key k1"></span>块级 LRU 超卖（人人互踩）</span><span><span class="key k2"></span>session 级准入（驻留者受保护，超额者自付）</span></div>
+    <div class="legend"><span><span class="key k1"></span>块级 LRU 超卖</span><span><span class="key k2"></span>session 级准入</span></div>
     <div class="chart-wrap" id="cliffChart"></div>
     <details class="tbl"><summary>模型公式与推导</summary>
       <p>块级 LRU：session 回来时，缓存里是比它更新的 N−1 个 session 的 context，留给它的空间是 M − (N−1)·c̄。命中率 h = clamp((M − (N−1)·c̄) / c̄, 0, 1)——在宽度仅 c̄ 的过渡带内从 1 跌到 0。每轮实际算量 = δ + (1−h)·c̄，<b>goodput = δ / (δ + (1−h)·c̄)</b>。</p>
       <p>session 级准入：K = ⌊M / c̄⌋ 个 session 驻留、全命中；其余 N−K 个不驻留，每轮自付全量重算，但不侵占驻留者的空间。goodput = N·δ / (K·δ + (N−K)·(δ + c̄))。</p>
-      <p>与前篇的不同：OS 里被挂起的进程不消耗 CPU，绿线是平的；这里超额 session 开口说话就得算，绿线也会下垂——准入控制消灭不了工作量，它消灭的是<b>互相踩踏</b>：驻留的 K 个 session 效率恒为 100%，损失被隔离在超额者身上。若在门口直接排队/限流，goodput 可保持 ~100%，代价是排队延迟——那才是前篇“整体挂起”的严格对应物。</p>
+      <p>准入控制消灭不了工作量（超额 session 开口就得算，绿线也会下垂），它消灭的是<b>互相踩踏</b>：驻留的 K 个 session 效率恒为 100%，损失被隔离在超额者身上。</p>
     </details>
     <details class="tbl"><summary>查看数据表（当前 M、c̄ 切片）</summary><div id="cliffTable"></div></details>
   </div>
   <p>比前篇更险恶的一点：雪崩发生时 <b>GPU 利用率是 100%</b>——它在满负荷地重算历史。OS 抖动的体征是 CPU 空转，一眼可诊断；KV 雪崩在利用率面板上一片健康，必须盯 goodput、命中率、TTFT 才看得见。</p>
   <div class="warnbox">
-    <p><b>而且雪崩会自我放大，不需要任何人犯错：</b>每轮变慢 → 在途请求堆积（Little 定律）→ 池子更挤；TTFT 超时 → 客户端重试 → 同一个长 prefill 提交两遍。1968 年那个火上浇油的调度器，今天叫超时重试。</p>
+    <p><b>而且雪崩会自我放大，不需要任何人犯错：</b>每轮变慢 → 在途请求堆积 → 池子更挤；TTFT 超时 → 客户端重试 → 同一个长 prefill 提交两遍。1968 年那个火上浇油的调度器，今天叫超时重试。</p>
   </div>
 </section>
 
@@ -255,7 +248,7 @@
     <div class="card"><b>① Σcontext ≤ M 是生死线</b><p>一个 session 的需求 = 全部前缀，只增不减。session 数不变，需求也会自己爬过线——盯住总和，别盯个数。</p></div>
     <div class="card"><b>② R ≈ 100 让 99% 命中率只值 50% 效率</b><p>miss 的代价是重算整个历史。miss 率必须远小于 1/R——不是洁癖，是效率公式的暴政。</p></div>
     <div class="card"><b>③ 雪崩是隐形的</b><p>崩溃时 GPU 利用率是 100%——它在满负荷做无用功。报警要盯 goodput、命中率、TTFT，别信利用率。</p></div>
-    <div class="card"><b>④ 解法 = 准入控制</b><p>超线时让新轮次在门口排队，别放进池子互踩；逐出从 session 尾部开始；把 session 路由回缓存所在的节点。vLLM 的 preemption、SGLang 的 radix cache、Mooncake 的调度，都是这一条的工程形态。</p></div>
+    <div class="card"><b>④ 解法 = 准入控制</b><p>超线时让新轮次在门口排队，别放进池子互踩；逐出从 session 尾部开始；把 session 路由回缓存所在的节点。</p></div>
   </div>
 </section>
 
@@ -432,19 +425,7 @@ const SESSIONS = [
   { name: "会话 9", turns: [[3,6],[11,5],[19,6],[27,5]] },
 ];
 const TMAX = 200, YMAX_KV = 460;
-const DEMAND_T = (() => {          /* 累计分配量（distance 轴），与 M 无关 */
-  const evs = [];
-  SESSIONS.forEach(s => s.turns.forEach(([u, d]) => evs.push([u, d])));
-  evs.sort((a, b) => a[0] - b[0]);
-  const a = []; let c = 0, ei = 0;
-  for (let t = 0; t <= TMAX; t++) {
-    while (ei < evs.length && evs[ei][0] <= t) { c += evs[ei][1]; ei++; }
-    a.push(c);
-  }
-  return a;
-})();
-const DMAX_T = DEMAND_T[TMAX];
-let distMode = false;
+
 
 function simulatePool(M) {
   /* 事件驱动 LRU：只在需要空间时，从最久没说话的 session 尾部逐出 */
@@ -455,13 +436,12 @@ function simulatePool(M) {
   const ctxNow = SESSIONS.map(() => 0);
   const lastTurn = SESSIONS.map(() => -1);
   const recompPerTurn = SESSIONS.map(s => s.turns.map(() => 0));
-  const snaps = [], demandArr = [], usedArr = [];
-  let ei = 0, demand = 0;
+  const snaps = [], usedArr = [];
+  let ei = 0;
   for (let t = 0; t <= TMAX; t++) {
     while (ei < events.length && events[ei].u <= t) {
       const { i, k, d } = events[ei];
       const cNew = ctxNow[i] + d;
-      demand += d;
       recompPerTurn[i][k] = Math.max(0, ctxNow[i] - resident[i]);
       let free = M - resident.reduce((a, b) => a + b, 0);
       const need = Math.min(cNew, M) - resident[i];
@@ -479,14 +459,13 @@ function simulatePool(M) {
       ei++;
     }
     snaps.push(resident.slice());
-    demandArr.push(demand);
     usedArr.push(resident.reduce((a, b) => a + b, 0));
   }
-  return { snaps, demandArr, usedArr, recompPerTurn };
+  return { snaps, usedArr, recompPerTurn };
 }
 
 const A2 = { W: 860, H: 300, ml: 66, mr: 16, mt: 20, mb: 36 };
-const a2X = t => A2.ml + (distMode ? DEMAND_T[t] / DMAX_T : t / TMAX) * (A2.W - A2.ml - A2.mr);
+const a2X = t => A2.ml + t / TMAX * (A2.W - A2.ml - A2.mr);
 const a2Y = v => A2.mt + (A2.H - A2.mt - A2.mb) * (1 - v / YMAX_KV);
 const a2Svg = svgEl("svg", { viewBox: `0 0 ${A2.W} ${A2.H}`, class: "chart", role: "img", "aria-label": "LRU 池全景图" }, null);
 document.getElementById("stackPlot").appendChild(a2Svg);
@@ -501,7 +480,10 @@ const capText = svgEl("text", { x: A2.W - A2.mr - 4, "text-anchor": "end", class
 const a2Now = svgEl("line", { y1: A2.mt - 2, y2: A2.H - A2.mb + 2, class: "win-edge" }, a2Svg);
 const nowGroup = svgEl("g", {}, a2Svg);
 svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(0), y2: a2Y(0), class: "axisline" }, a2Svg);
-const axisGroup = svgEl("g", {}, a2Svg);
+[0, 50, 100, 150, 200].forEach(tv =>
+  svgEl("text", { x: a2X(tv), y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, a2Svg).textContent = tv);
+svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, a2Svg)
+  .textContent = "时间（秒，示意）";
 const dotGroup = svgEl("g", {}, a2Svg);
 const poolAnnoGroup = svgEl("g", {}, a2Svg);
 svgEl("text", { x: A2.ml - 40, y: 12, class: "axtext" }, a2Svg).textContent = "千 token";
@@ -542,42 +524,9 @@ function redrawPool(M) {
       }
     }
   });
-  /* 已被挤出的楔子 + 无限内存需求虚线 */
-  const dem = poolCache.demandArr.map(v => Math.min(v, YMAX_KV)), used = poolCache.usedArr;
-  let t0 = null;
-  for (let t = 0; t <= TMAX + 1; t++) {
-    const on = t <= TMAX && dem[t] > used[t] + 0.01;
-    if (on && t0 === null) t0 = t;
-    if (!on && t0 !== null) {
-      const t1 = t - 1;
-      if (t1 > t0) {
-        const seg = dem.map((v, x) => [used[x], Math.max(v, used[x])]);
-        svgEl("path", { d: pathFromRun(seg, t0, t1, a2X, a2Y), class: "kv-debt" }, overGroup);
-      }
-      t0 = null;
-    }
-  }
-  let d = `M${a2X(0)},${a2Y(dem[0])}`;
-  for (let t = 1; t <= TMAX; t++) d += `L${a2X(t)},${a2Y(dem[t - 1])}L${a2X(t)},${a2Y(dem[t])}`;
-  svgEl("path", { d, class: "demand-line" }, overGroup);
   capLine.setAttribute("y1", a2Y(M)); capLine.setAttribute("y2", a2Y(M));
   capText.setAttribute("y", a2Y(M) - 6);
   capText.textContent = `HBM 容量 M = ${M}k`;
-  /* 横轴刻度（随模式切换） */
-  axisGroup.innerHTML = "";
-  if (distMode) {
-    [0, 100, 200, 300, 400].forEach(v => {
-      const x = A2.ml + v / DMAX_T * (A2.W - A2.ml - A2.mr);
-      svgEl("text", { x, y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, axisGroup).textContent = v;
-    });
-    svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, axisGroup)
-      .textContent = "累计分配量 distance（千 token）——沉默期间别人分配了多少";
-  } else {
-    [0, 50, 100, 150, 200].forEach(tv =>
-      svgEl("text", { x: a2X(tv), y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, axisGroup).textContent = tv);
-    svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, axisGroup)
-      .textContent = "时间（秒，示意）";
-  }
   /* 轮次点：画在各自 session 的带子中心 */
   dotGroup.innerHTML = ""; poolAnnoGroup.innerHTML = "";
   SESSIONS.forEach((sn, i) => sn.turns.forEach(([u, dlt], k) => {
@@ -616,20 +565,13 @@ function updatePool(structChanged) {
     if (!seg) return;
     svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(seg[1]), height: a2Y(seg[0]) - a2Y(seg[1]), rx: 2, class: "now-seg" }, nowGroup);
   });
-  const used = poolCache.usedArr[curT], dem = poolCache.demandArr[curT];
   document.getElementById("roT").textContent = curT + "s";
   document.getElementById("roK").textContent = snap.filter(v => v > 0.01).length + " 个";
-  document.getElementById("roUsed").textContent = Math.round(used) + "k";
+  document.getElementById("roUsed").textContent = Math.round(poolCache.usedArr[curT]) + "k";
   document.getElementById("roM").textContent = curM + "k";
-  document.getElementById("roDebt").textContent = Math.max(0, Math.round(dem - used)) + "k";
 }
 tSlider.addEventListener("input", () => { curT = +tSlider.value; stopPlay(); updatePool(false); });
 mSlider.addEventListener("input", () => { curM = +mSlider.value; updatePool(true); });
-document.getElementById("axisDist").addEventListener("change", ev => {
-  distMode = ev.target.checked;
-  document.getElementById("distNote").style.display = distMode ? "" : "none";
-  updatePool(true);
-});
 const playBtn = document.getElementById("playBtn");
 let timer = null;
 function stopPlay() { if (timer) { clearInterval(timer); timer = null; playBtn.textContent = "▶ 播放"; } }
@@ -679,7 +621,6 @@ function updateCliff(structChanged) {
   const h = hitRate(N, M, cbar), g = goodLRU(N, M, cbar);
   document.getElementById("tileH").textContent = (h * 100).toFixed(0) + "%";
   document.getElementById("tileHd").textContent = h >= 1 ? "工作集全部装下" : "回头必丢前缀";
-  document.getElementById("tileA").textContent = "×" + ((DELTA + (1 - h) * cbar) / DELTA).toFixed(1);
   document.getElementById("tileG").textContent = (g * 100).toFixed(g > 0.99 ? 1 : 0) + "%";
   cliffChart.setMarker(N);
 }
