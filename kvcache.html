@@ -94,6 +94,7 @@
   .bandtext  { fill: var(--muted); font-size: 11px; }
   .anno      { fill: var(--muted); font-size: 11px; font-style: italic; }
   .anno.strong { fill: var(--text-secondary); font-style: normal; font-weight: 600; }
+  .anno.halo   { fill: var(--text-secondary); font-style: normal; paint-order: stroke; stroke: var(--surface-1); stroke-width: 3.5; stroke-linejoin: round; }
   .measure   { stroke: var(--muted); stroke-width: 1; }
   .s1-line { stroke: var(--series-1); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
   .s2-line { stroke: var(--series-2); stroke-width: 2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
@@ -248,10 +249,10 @@
 <section id="pool">
   <div class="kicker">概念二的前奏</div>
   <h2>5. 把 9 个 session 放进一个 LRU 池</h2>
-  <p>单个 session 的账已经算清，现在把 9 个放进同一块 HBM。<b>池子的规则只有一条</b>（这就是 vLLM / SGLang 的真实行为）：<b>块进来就留下，没有过期时间；只有当新的分配需要空间时，才从“最久没说话”的 session 的尾部开始逐出。</b>驱逐的因是容量，不是时钟——其余一切都是这条规则的后果。<b>读图前先记住四件事：</b></p>
+  <p>单个 session 的账已经算清，现在把 9 个放进同一块 HBM。<b>池子的规则只有一条</b>（这就是 vLLM / SGLang 的真实行为）：<b>块进来就留下，没有过期时间；只有当新的分配需要空间时，才从“最久没说话”的 session 的尾部开始逐出。</b>驱逐的因是容量，不是时钟——其余一切都是这条规则的后果。（第 2 节的账单图，就是从这张全景里抽出一个 session、把它的每个点展开成一行。）<b>读图前先记住四件事：</b></p>
   <div class="defbox">
-    <p><b>① 上图的一个点 = 一轮输入的到达</b>，不是内存块。<b>蓝点 = 命中</b>：它的历史块全在池中，这一轮只算新增的一小截；<b>红点 = 被挤过</b>：沉默期间历史被别人挤掉了一部分或全部，这一轮要先重算缺失的前缀（第 4 节的 R 倍账单）。</p>
-    <p><b>② 没有窗口了。</b>块不会自己过期，只会被新需求挤出去。高亮的行 = 此刻在池中还有块的 session——包括已经死了但还没被挤掉的。</p>
+    <p><b>① 一个点 = 一轮输入的到达</b>（画在它自己 session 的带子里），不是内存块。<b>蓝点 = 命中</b>：历史块全在池中，这一轮只算新增的一小截；<b>红点 = 被挤过</b>：沉默期间历史被别人挤掉了一部分或全部，这一轮要先重算缺失的前缀（第 4 节的 R 倍账单）。</p>
+    <p><b>② 没有窗口了。</b>块不会自己过期，只会被新需求挤出去——带子每一次被削顶，都是一次真实的逐出，凶手是同一时刻正在长高的另一条带子。</p>
     <p><b>③ 下图的堆叠 = 各 session 实际驻留的块，总和永远不超过容量 M。</b>虚线阶梯是“如果内存无限、本可以全部缓存”的总量；虚线与堆顶之间的浅红楔子 = <b>已被挤出的块</b>——谁回来谁付重算。挤占就发生在带子被削顶的那些瞬间：别人一说话，最老 session 的尾巴被当场吃掉。</p>
     <p><b>④ 等效窗口 τ<sub>eff</sub> 是被挤出来的读数</b>：池中最老的完整幸存者闲置了多久。M 越小、说话的人越多，τ<sub>eff</sub> 被压得越短；当它短于典型轮次间隔（本例 8–12 秒），几乎每个回头轮都变红——那就是雪崩的定义（第 6 节）。</p>
   </div>
@@ -261,13 +262,12 @@
       <button class="play" id="playBtn">▶ 播放</button>
       <label>时刻 <em class="v">t</em><input type="range" id="tSlider" min="0" max="200" value="100"><output id="tOut">100</output></label>
       <label>容量 <em class="v">M</em><input type="range" id="mSlider" min="80" max="350" step="10" value="150"><output id="mOut">150</output>k</label>
+      <label><input type="checkbox" id="axisDist"> 横轴改为累计分配量（distance）</label>
     </div>
-    <p class="chart-title">轮次到达（每行一个 session；蓝点 = 命中，红点 = 历史被挤过、需重算）</p>
-    <p class="chart-note">红蓝是整段模拟的结果，只随 M 变化：M 拉大，红点变少；M 拉小，挤占提前、红点蔓延。</p>
-    <div class="chart-wrap" id="arrivalPlot"></div>
-    <p class="chart-title">LRU 池：各 session 实际驻留的块（堆叠，总和 ≤ M；单位：千 token）</p>
-    <p class="chart-note">虚线阶梯 = 若内存无限本可缓存的总量；虚线与堆顶之间的浅红区 = 已被挤出的块。注意死掉的 session（会话 2、9）的带子也会一直赖到被挤才走。</p>
+    <p class="chart-title">LRU 池全景：轮次（点）、驻留（带）、逐出（空缺与削顶）、容量（横线）——都在一张图上</p>
+    <p class="chart-note">点画在自己 session 的带子里：一点 = 一轮到达，<b>蓝 = 前缀全在（免费复用），红 = 沉默期间被挤过（本轮重算）</b>；带子厚度 = 该 session 驻留的块，被削顶 = 正在被逐出；虚线阶梯 = 内存无限时本可缓存的总量，它与堆顶之间的浅红区 = 已被挤出的块。</p>
     <div class="chart-wrap" id="stackPlot"></div>
+    <p class="chart-note" id="distNote" style="display:none"><b>distance 轴下的几何事实：每条带子在最后一个点之后的尾长都 ≈ M。</b>在这个坐标系里，容量就是存活期——第 2 节的 τ 与这里的 M 是同一个东西（LRU 的定空间/变空间对偶）。</p>
     <p class="readout">t = <code id="roT"></code>　池中 session <code id="roK"></code>　已用 <code id="roUsed"></code> / 容量 <code id="roM"></code>　已挤出 <code id="roDebt"></code>　等效窗口 τ<sub>eff</sub> <code id="roTeff"></code></p>
   </div>
 
@@ -534,33 +534,24 @@ soloTauSlider.addEventListener("input", () => {
 });
 redrawSolo(15);
 
-/* ---------- 可视化 A1：轮次到达 ---------- */
-const A1 = { W: 860, H: 262, ml: 66, mr: 16, mt: 24, mb: 34 };
-const a1X = t => A1.ml + t / TMAX * (A1.W - A1.ml - A1.mr);
-const a1Y = i => A1.mt + (i + 0.5) * (A1.H - A1.mt - A1.mb) / NS;
-const a1RowH = (A1.H - A1.mt - A1.mb) / NS;
-const a1Svg = svgEl("svg", { viewBox: `0 0 ${A1.W} ${A1.H}`, class: "chart", role: "img", "aria-label": "session 轮次到达时间线" }, null);
-document.getElementById("arrivalPlot").appendChild(a1Svg);
-const a1Rows = [];
-SESSIONS.forEach((s, i) => {
-  a1Rows.push(svgEl("rect", { x: A1.ml, y: a1Y(i) - a1RowH / 2, width: A1.W - A1.ml - A1.mr, height: a1RowH, class: "ws-rowband" }, a1Svg));
-  svgEl("text", { x: A1.ml - 10, y: a1Y(i) + 4, "text-anchor": "end", class: "ticktext" }, a1Svg).textContent = s.name;
-});
-const a1Edge = svgEl("line", { y1: A1.mt - 4, y2: A1.H - A1.mb + 4, class: "win-edge" }, a1Svg);
-const a1Dots = [];
-SESSIONS.forEach((s, i) => s.turns.forEach(([u], k) => {
-  a1Dots.push({ si: i, u, k, el: svgEl("circle", { cx: a1X(u), cy: a1Y(i), r: 3, class: "ref-dot" }, a1Svg) });
-}));
-svgEl("text", { x: a1X(52), y: a1Y(1) + 4, class: "anno" }, a1Svg).textContent = "← 用户已离开——但系统无法区分离开与停顿";
-svgEl("text", { x: a1X(60), y: a1Y(2) + 4, class: "anno" }, a1Svg).textContent = "← 停顿 61 秒后回来";
-svgEl("line", { x1: A1.ml, x2: A1.W - A1.mr, y1: A1.H - A1.mb, y2: A1.H - A1.mb, class: "axisline" }, a1Svg);
-[0, 50, 100, 150, 200].forEach(tv =>
-  svgEl("text", { x: a1X(tv), y: A1.H - A1.mb + 16, "text-anchor": "middle", class: "ticktext" }, a1Svg).textContent = tv);
-svgEl("text", { x: A1.ml + (A1.W - A1.ml - A1.mr) / 2, y: A1.H - 2, "text-anchor": "middle", class: "axtext" }, a1Svg).textContent = "时间（秒，示意）";
+/* ---------- 累计分配量（distance 轴用），与 M 无关 ---------- */
+const DEMAND_T = (() => {
+  const evs = [];
+  SESSIONS.forEach(s => s.turns.forEach(([u, d]) => evs.push([u, d])));
+  evs.sort((a, b) => a[0] - b[0]);
+  const a = []; let c = 0, ei = 0;
+  for (let t = 0; t <= TMAX; t++) {
+    while (ei < evs.length && evs[ei][0] <= t) { c += evs[ei][1]; ei++; }
+    a.push(c);
+  }
+  return a;
+})();
+const DMAX_T = DEMAND_T[TMAX];
+let distMode = false;
 
 /* ---------- 可视化 A2：HBM 堆叠 ---------- */
 const A2 = { W: 860, H: 300, ml: 66, mr: 16, mt: 20, mb: 36 };
-const a2X = t => A2.ml + t / TMAX * (A2.W - A2.ml - A2.mr);
+const a2X = t => A2.ml + (distMode ? DEMAND_T[t] / DMAX_T : t / TMAX) * (A2.W - A2.ml - A2.mr);
 const a2Y = v => A2.mt + (A2.H - A2.mt - A2.mb) * (1 - v / YMAX_KV);
 const a2Svg = svgEl("svg", { viewBox: `0 0 ${A2.W} ${A2.H}`, class: "chart", role: "img", "aria-label": "HBM 占用堆叠图" }, null);
 document.getElementById("stackPlot").appendChild(a2Svg);
@@ -575,9 +566,9 @@ const capText = svgEl("text", { x: A2.W - A2.mr - 4, "text-anchor": "end", class
 const a2Now = svgEl("line", { y1: A2.mt - 2, y2: A2.H - A2.mb + 2, class: "win-edge" }, a2Svg);
 const nowGroup = svgEl("g", {}, a2Svg);
 svgEl("line", { x1: A2.ml, x2: A2.W - A2.mr, y1: a2Y(0), y2: a2Y(0), class: "axisline" }, a2Svg);
-[0, 50, 100, 150, 200].forEach(tv =>
-  svgEl("text", { x: a2X(tv), y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, a2Svg).textContent = tv);
-svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, a2Svg).textContent = "时间（秒，示意）";
+const axisGroup = svgEl("g", {}, a2Svg);
+const dotGroup = svgEl("g", {}, a2Svg);
+const poolAnnoGroup = svgEl("g", {}, a2Svg);
 svgEl("text", { x: A2.ml - 40, y: 12, class: "axtext" }, a2Svg).textContent = "千 token";
 
 function simulatePool(M) {
@@ -684,6 +675,43 @@ function redrawPool(M) {
   capLine.setAttribute("y1", a2Y(M)); capLine.setAttribute("y2", a2Y(M));
   capText.setAttribute("y", a2Y(M) - 6);
   capText.textContent = `HBM 容量 M = ${M}k`;
+  /* 横轴刻度（随模式切换） */
+  axisGroup.innerHTML = "";
+  if (distMode) {
+    [0, 100, 200, 300, 400].forEach(v => {
+      const x = A2.ml + v / DMAX_T * (A2.W - A2.ml - A2.mr);
+      svgEl("text", { x, y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, axisGroup).textContent = v;
+    });
+    svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, axisGroup)
+      .textContent = "累计分配量 distance（千 token）——沉默期间别人分配了多少";
+  } else {
+    [0, 50, 100, 150, 200].forEach(tv =>
+      svgEl("text", { x: a2X(tv), y: A2.H - A2.mb + 16, "text-anchor": "middle", class: "ticktext" }, axisGroup).textContent = tv);
+    svgEl("text", { x: A2.ml + (A2.W - A2.ml - A2.mr) / 2, y: A2.H - 2, "text-anchor": "middle", class: "axtext" }, axisGroup)
+      .textContent = "时间（秒，示意）";
+  }
+  /* 轮次点：画在各自 session 的带子中心 */
+  dotGroup.innerHTML = ""; poolAnnoGroup.innerHTML = "";
+  SESSIONS.forEach((sn, i) => sn.turns.forEach(([u, d], k) => {
+    const seg = layers[i][u];
+    if (!seg) return;
+    const cy = (a2Y(seg[0]) + a2Y(seg[1])) / 2;
+    const miss = poolCache.recompPerTurn[i][k] > 0.01;
+    const dot = svgEl("circle", { cx: a2X(u), cy, r: 3.5, class: miss ? "ref-dot miss" : "ref-dot hit",
+                                  stroke: "var(--surface-1)", "stroke-width": 1.5 }, dotGroup);
+    svgEl("title", {}, dot).textContent = miss
+      ? `${sn.name} 第 ${k + 1} 轮（t=${u}s）：被挤过，重算 ${Math.round(poolCache.recompPerTurn[i][k])}k + 新增 ${d}k`
+      : `${sn.name} 第 ${k + 1} 轮（t=${u}s）：命中，只算新增 ${d}k`;
+  }));
+  /* 两个固定剧情的注释 */
+  const annoAt = (i, u, text) => {
+    const seg = layers[i][u];
+    if (!seg) return;
+    svgEl("text", { x: a2X(u) + 8, y: (a2Y(seg[0]) + a2Y(seg[1])) / 2 + 3.5, class: "anno halo" }, poolAnnoGroup)
+      .textContent = text;
+  };
+  annoAt(1, 46, "← 会话 2 此后永远沉默（死亡不可观测）");
+  annoAt(2, 95, "← 会话 3 停顿 61s 后回来");
 }
 
 /* ---------- 可视化 A 的状态 ---------- */
@@ -694,10 +722,8 @@ let curT = +tSlider.value, curM = +mSlider.value;
 function updateVizA(structChanged) {
   if (structChanged) redrawPool(curM);
   tOut.textContent = curT; mOut.textContent = curM;
-  a1Edge.setAttribute("x1", a1X(curT)); a1Edge.setAttribute("x2", a1X(curT));
   a2Now.setAttribute("x1", a2X(curT)); a2Now.setAttribute("x2", a2X(curT));
   const snap = poolCache.snaps[curT];
-  a1Rows.forEach((r, i) => r.setAttribute("class", snap[i] > 0.01 ? "ws-rowband on" : "ws-rowband"));
   /* 当前时刻的剖面卡尺：各 session 此刻实际驻留的厚度 */
   nowGroup.innerHTML = "";
   SESSIONS.forEach((s, i) => {
@@ -705,9 +731,6 @@ function updateVizA(structChanged) {
     if (!seg) return;
     svgEl("rect", { x: a2X(curT) - 4, width: 8, y: a2Y(seg[1]), height: a2Y(seg[0]) - a2Y(seg[1]), rx: 2, class: "now-seg" }, nowGroup);
   });
-  /* 红蓝点：整段模拟的命中/重算结果，只随 M 变化 */
-  a1Dots.forEach(d => d.el.setAttribute("class",
-    poolCache.recompPerTurn[d.si][d.k] > 0.01 ? "ref-dot miss" : "ref-dot hit"));
   const used = poolCache.usedArr[curT], dem = poolCache.demandArr[curT];
   const { teff, pressured } = poolCache.teffArr[curT];
   document.getElementById("roT").textContent = curT + "s";
@@ -720,6 +743,11 @@ function updateVizA(structChanged) {
 }
 tSlider.addEventListener("input", () => { curT = +tSlider.value; stopPlay(); updateVizA(false); });
 mSlider.addEventListener("input", () => { curM = +mSlider.value; updateVizA(true); });
+document.getElementById("axisDist").addEventListener("change", ev => {
+  distMode = ev.target.checked;
+  document.getElementById("distNote").style.display = distMode ? "" : "none";
+  updateVizA(true);
+});
 const playBtn = document.getElementById("playBtn");
 let timer = null;
 function stopPlay() { if (timer) { clearInterval(timer); timer = null; playBtn.textContent = "▶ 播放"; } }
