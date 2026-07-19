@@ -21,6 +21,7 @@
     --series-3:      #e87ba4;
     --series-4:      #eda100;
     --series-5:      #1baf7a;
+    --status-good:   #0ca30c;
     --status-critical:#d03b3b;
     --wash-1:        rgba(42,120,214,0.10);
     --band-fill:     rgba(137,135,129,0.28);
@@ -146,6 +147,13 @@
   .tt { position: absolute; pointer-events: none; display: none; z-index: 5; background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: 7px 11px; font-size: 12.5px; color: var(--text-secondary); white-space: nowrap; line-height: 1.6; }
   .tt b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
   .tt .key { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+  .memstrip { display: flex; gap: 2px; height: 38px; border-radius: 8px; overflow: hidden; margin-top: 4px; background: var(--surface-1); }
+  .memstrip .seg { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 12px; color: var(--text-primary); min-width: 0; }
+  .memstrip .seg.fit  { background: color-mix(in srgb, var(--status-good) 26%, var(--surface-1)); }
+  .memstrip .seg.over { background: color-mix(in srgb, var(--status-critical) 30%, var(--surface-1)); }
+  .memnote { font-size: 14px; margin-top: 8px; }
+  .memnote .ok  { color: var(--status-good); font-weight: 600; }
+  .memnote .bad { color: var(--status-critical); font-weight: 600; }
   .legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin: 10px 0 0; }
   .legend .key { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
   .k1 { background: var(--series-1); } .k2 { background: var(--series-2); } .k3 { background: var(--series-3); }
@@ -298,21 +306,27 @@
     <p><b>② 深度相同 → 命运相同</b>——N·c̄ ≤ M 人人全命中；一旦超出，人人被啃掉同样长的尾巴 (N·c̄ − M)；超出达到一个会话宽（c̄）时，啃的就是整个前缀。</p>
     <p><b>③ 所以雪崩线在 x = Σcontext ÷ M = 1</b>，谷底 = 全额重算时的 δ/(δ+c̄) = <b>1/(1+R)</b>——第 3 节 h = 0 的那条公式。</p>
   </div>
-  <p>用数字感受一下（R = 100）：N=10、c̄=50k、δ=0.5k、M=500k——恰好 x=1，人人全命中，每轮只算 0.5k 新活。<b>多接一个会话</b>（x=1.1）：每次回来深度 550k，超出的 50k 恰好是整个前缀，每轮变成算 50.5k——<b>goodput 从 100% 跌到 1%：加一个会话，吞吐跌一百倍</b>。</p>
+  <p>下面亲手跨一次线（固定 M = 500k、c̄ = 50k、δ = 0.5k，即 R = 100）：<b>拖到 N = 10 一切完美；再加一个会话，看三块表怎么变</b>。</p>
   <div class="card">
     <div class="controls">
-      <label>惩罚比 <em class="v">R</em> = context / 轮长<input type="range" id="rSlider" min="0" max="2" step="1" value="1"><output id="rOut">100</output></label>
+      <label>并发会话数 <em class="v">N</em><input type="range" id="n5Slider" min="1" max="16" value="10"><output id="n5Out">10</output></label>
     </div>
-    <p class="chart-title">Goodput 与 需求/容量比 x</p>
-    <p class="chart-note">蓝线按 N = 10 个会话画，过渡带宽恰为一个会话（x 从 1 到 1.11）；N 越大悬崖越接近垂直。</p>
+    <div class="memstrip" id="hbmStrip" aria-label="HBM 池分配示意"></div>
+    <p class="memnote" id="hbmNote"></p>
+    <div class="tiles">
+      <div class="tile"><div class="tl">命中率 h</div><div class="tv" id="t5H">—</div><div class="td" id="t5Hd"></div></div>
+      <div class="tile"><div class="tl">Goodput</div><div class="tv" id="t5G">—</div><div class="td">新 token ÷ 实际计算</div></div>
+      <div class="tile"><div class="tl">GPU 利用率</div><div class="tv">100%</div><div class="td">崩没崩，它都满负荷</div></div>
+    </div>
+    <p class="chart-title">Goodput 与 并发会话数 N（M = 500k，c̄ = 50k）</p>
     <div class="legend"><span><span class="key k1"></span>LRU 超卖</span><span><span class="key k2"></span>session 级准入（驻留者恒 100%）</span></div>
     <div class="chart-wrap" id="cliffChart"></div>
     <details class="tbl"><summary>模型公式与推导</summary>
-      <p>准静态近似：context 的增长远慢于轮转，把每个会话的 context 记作常数 c̄、每轮新增 δ，R = c̄ / δ。</p>
-      <p>LRU 超卖：对称轮转下人人深度 N·c̄、全体同进退。x ≤ 1 全命中；超出后每轮重算被挤出的尾巴 N·c̄ − M，超出达一个会话宽（x ≥ N/(N−1)）后重算整个 c̄，goodput 触底 <b>δ/(δ+c̄) = 1/(1+R)</b>——过渡带只有一个会话宽，N 越大越接近纯粹的阶跃。</p>
-      <p>session 级准入：K = M/c̄ 个会话驻留、恒 100% 命中；超额部分每轮自付全量重算 → <b>goodput = x / (1 + (x−1)(1+R))</b>。它同样下垂——准入消灭不了超额的工作量，它消灭的是<b>互相踩踏</b>：损失被隔离在超额者身上，驻留者毫发无损。</p>
+      <p>准静态近似：context 的增长远慢于轮转，把每个会话的 context 记作常数 c̄、每轮新增 δ，R = c̄ / δ = 100。雪崩线 N* = M / c̄ = 10，即 x = Σcontext ÷ M = 1。</p>
+      <p>LRU 超卖：N ≤ N* 人人全命中。从 N* + 1 起，回来时留给你的空间 M − (N−1)·c̄ ≤ 0——整个前缀已被啃光，每轮算 δ + c̄，goodput 触底 <b>1/(1+R)</b>。过渡带恰好一个会话宽；改 R 只改谷底深浅。</p>
+      <p>session 级准入：K = N* 个会话驻留、恒 100% 命中；超额者每轮自付全量重算 → goodput = N·δ / (K·δ + (N−K)·(δ + c̄))。它同样下垂——准入消灭不了超额的工作量，它消灭的是<b>互相踩踏</b>：损失被隔离在超额者身上，驻留者毫发无损。</p>
     </details>
-    <details class="tbl"><summary>查看数据表（当前 R）</summary><div id="cliffTable"></div></details>
+    <details class="tbl"><summary>查看数据表</summary><div id="cliffTable"></div></details>
   </div>
   <p>比前篇更险恶的一点：雪崩发生时 <b>GPU 利用率是 100%</b>——它在满负荷地重算历史。OS 抖动的体征是 CPU 空转，一眼可诊断；KV 雪崩在利用率面板上一片健康，必须盯 goodput、命中率、TTFT 才看得见。</p>
   <div class="warnbox">
@@ -893,43 +907,58 @@ document.getElementById("ehTable").innerHTML =
   logEl.innerHTML = "上面是 t=196s 收场时的栈。按 <b>▶ 从头回放</b> 看它怎么长成这样，或直接拖那条容量线。";
 }
 
-/* ================= 第 5 节：雪崩线（x = Σcontext / M） ================= */
-const R_STOPS = [10, 100, 1000], NSYM = 10;
-/* 过渡带如实按 N = NSYM 画：超出部分 = clamp(N(x−1)/x, 0, 1) 个 c̄ */
-function gLRU(x, R) { return x <= 1 ? 1 : 1 / (1 + R * Math.min(1, NSYM * (x - 1) / x)); }
-function gAdm(x, R) { return x <= 1 ? 1 : x / (1 + (x - 1) * (1 + R)); }
+/* ================= 第 5 节：雪崩线（拖 N 亲手跨线） ================= */
+const CBAR = 50, DELTA5 = 0.5, M5 = 500, NSTAR = M5 / CBAR, NMAX5 = 16, R5 = CBAR / DELTA5;
+function hit5(N) { return clamp((M5 - (N - 1) * CBAR) / CBAR, 0, 1); }
+function gL5(N) { return DELTA5 / (DELTA5 + (1 - hit5(N)) * CBAR); }
+function gA5(N) { const K = Math.min(N, NSTAR); return N * DELTA5 / (K * DELTA5 + (N - K) * (DELTA5 + CBAR)); }
 const cliffChart = lineChart(document.getElementById("cliffChart"), {
-  h: 260, xMin: 0.5, xMax: 2, yMin: 0, yMax: 1,
-  xTicks: [0.5, 1, 1.5, 2], yTicks: [0, 0.25, 0.5, 0.75, 1],
-  xLabel: "x = Σcontext ÷ M（总需求 ÷ 容量）", yLabel: "Goodput",
-  xName: "x", snap: v => clamp(Math.round(v * 20) / 20, 0.5, 2),
-  xFmt: v => (typeof v === "number" ? v.toFixed(2) : v),
-  yFmt: v => (v * 100).toFixed(v < 0.1 ? 1 : 0) + "%",
+  h: 260, xMin: 1, xMax: NMAX5, yMin: 0, yMax: 1,
+  xTicks: [1, 5, 10, 16], yTicks: [0, 0.25, 0.5, 0.75, 1],
+  xLabel: "并发会话数 N", yLabel: "Goodput",
+  xName: "N", snap: v => clamp(Math.round(v), 1, NMAX5),
+  yFmt: v => (v * 100).toFixed(v > 0 && v < 0.1 ? 1 : 0) + "%",
   series: [
-    { name: "LRU 超卖", cls: "s1", points: [] },
-    { name: "session 级准入", cls: "s2", points: [] },
+    { name: "LRU 超卖", cls: "s1", points: Array.from({ length: NMAX5 }, (_, i) => [i + 1, gL5(i + 1)]) },
+    { name: "session 级准入", cls: "s2", points: Array.from({ length: NMAX5 }, (_, i) => [i + 1, gA5(i + 1)]) },
   ],
-  ariaLabel: "goodput 随需求容量比变化的折线图",
+  ariaLabel: "goodput 随并发会话数变化的折线图",
 });
-svgEl("line", { x1: cliffChart.X(1), x2: cliffChart.X(1), y1: cliffChart.Y(1), y2: cliffChart.Y(0),
+svgEl("line", { x1: cliffChart.X(NSTAR), x2: cliffChart.X(NSTAR), y1: cliffChart.Y(1), y2: cliffChart.Y(0),
                 class: "gridline", "stroke-dasharray": "3 3" }, cliffChart.svg);
-svgEl("text", { x: cliffChart.X(1) + 6, y: cliffChart.Y(1) + 12, class: "anno strong" }, cliffChart.svg)
-  .textContent = "雪崩线 x = 1";
-const rSlider = document.getElementById("rSlider"), rOut = document.getElementById("rOut");
+svgEl("text", { x: cliffChart.X(NSTAR) + 6, y: cliffChart.Y(1) + 12, class: "anno strong" }, cliffChart.svg)
+  .textContent = "雪崩线 N* = M/c̄ = 10";
+document.getElementById("cliffTable").innerHTML =
+  "<table><tr><th>N</th><th>命中率 h</th><th>LRU 超卖</th><th>session 级准入</th></tr>" +
+  Array.from({ length: NMAX5 }, (_, i) => {
+    const n = i + 1;
+    return `<tr><td>${n}</td><td>${Math.round(hit5(n) * 100)}%</td>` +
+           `<td>${(gL5(n) * 100).toFixed(1)}%</td><td>${(gA5(n) * 100).toFixed(1)}%</td></tr>`;
+  }).join("") + "</table>";
+const n5Slider = document.getElementById("n5Slider"), n5Out = document.getElementById("n5Out");
+const hbmStrip = document.getElementById("hbmStrip"), hbmNote = document.getElementById("hbmNote");
 function updateCliff() {
-  const R = R_STOPS[+rSlider.value];
-  rOut.textContent = R;
-  const xs = [];
-  for (let x = 0.5; x <= 2.0001; x += 0.05) xs.push(Math.round(x * 20) / 20);
-  cliffChart.setData(0, xs.map(x => [x, gLRU(x, R)]));
-  cliffChart.setData(1, xs.map(x => [x, gAdm(x, R)]));
-  document.getElementById("cliffTable").innerHTML =
-    "<table><tr><th>x</th><th>LRU 超卖</th><th>session 级准入</th></tr>" +
-    [0.9, 1, 1.05, 1.11, 1.5, 2].map(x =>
-      `<tr><td>${x.toFixed(2)}</td><td>${(gLRU(x, R) * 100).toFixed(1)}%</td>` +
-      `<td>${(gAdm(x, R) * 100).toFixed(1)}%</td></tr>`).join("") + "</table>";
+  const N = +n5Slider.value;
+  n5Out.textContent = N;
+  const share = M5 / N, fits = N <= NSTAR;
+  hbmStrip.innerHTML = "";
+  for (let i = 0; i < N; i++) {
+    const s = document.createElement("div");
+    s.className = "seg " + (fits ? "fit" : "over");
+    if (N <= 12) s.textContent = Math.floor(share) + "k";
+    s.title = `会话 ${i + 1}：工作集需要 ${CBAR}k，人均份额 ${share.toFixed(0)}k`;
+    hbmStrip.appendChild(s);
+  }
+  hbmNote.innerHTML = fits
+    ? `<span class="ok">✓ 装得下</span>　Σcontext = ${N * CBAR}k ≤ M = ${M5}k，谁回来前缀都在`
+    : `<span class="bad">⚠ 超卖</span>　Σcontext = ${N * CBAR}k &gt; M = ${M5}k——LRU 下没人幸免：轮到你回来时，你的前缀恰好刚被挤光`;
+  document.getElementById("t5H").textContent = Math.round(hit5(N) * 100) + "%";
+  document.getElementById("t5Hd").textContent = fits ? "工作集全部装下" : "回头必丢前缀";
+  const g = gL5(N);
+  document.getElementById("t5G").textContent = (g * 100).toFixed(g < 0.1 ? 1 : 0) + "%";
+  cliffChart.setMarker(N);
 }
-rSlider.addEventListener("input", updateCliff);
+n5Slider.addEventListener("input", updateCliff);
 
 /* 初始渲染 */
 updateCliff();
