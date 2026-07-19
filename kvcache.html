@@ -289,27 +289,21 @@
 <section id="cliff">
   <div class="kicker">关键点三（下）</div>
   <h2>5. 雪崩线：跨过去就是断崖</h2>
-  <p>上一节那条 goodput–容量小曲线有个膝点——爬过它才满 100%，那就是 5 个会话的雪崩线。不过那 5 个会话节奏各异、栈深度参差，膝点是钝的；把负载推到极限，它就变成刀锋：N 个 session 轮流说话、context 都是 <em class="v">c̄</em>、每轮新增 0.5k token。这时每次回来，压在你上面的恰好是其余 N−1 个会话：<b>stack distance 人人都是 (N−1)·c̄ + c̄ = N·c̄</b>。深度人人相同，结局就只有两种：全体在线内（人人全命中），或全体同时超线（人人重算）——<b>命中率不是缓降而是阶跃归零</b>。悬崖的位置就在：</p>
-  <div class="defbox"><p><b>雪崩线：N × c̄ = M（即 Σcontext = M）</b>　——HBM 越大养得起的 session 越多，跨过线即雪崩。</p></div>
+  <p>上一节那条 goodput–容量小曲线有个膝点——爬过它才满 100%，那就是 5 个会话的雪崩线。那 5 个会话节奏各异、栈深度参差，所以膝点是钝的；把负载推到对称极限它就变成刀锋：N 个会话轮流说话、context 都是 <em class="v">c̄</em>，每次回来深度人人都是 N·c̄，<b>全体同进退</b>——容量只差一个会话的宽度，就人人从全命中跌到全重算。于是变量只剩一个比值：</p>
+  <div class="defbox"><p><b>x = Σcontext ÷ M（总需求 ÷ 容量）。雪崩线恒在 x = 1。</b>悬崖的深度也不是新参数：全 miss 时每轮算 δ + c̄，goodput 跌到 <b>1 / (1 + R)</b>——正是第 3 节的惩罚比。</p></div>
   <div class="card">
     <div class="controls">
-      <label>session 数 <em class="v">N</em><input type="range" id="nSlider" min="1" max="32" value="8"><output id="nOut">8</output></label>
-      <label>容量 <em class="v">M</em><input type="range" id="capSlider" min="50" max="1600" step="50" value="400"><output id="capOut">400</output>k</label>
-      <label>平均 context <em class="v">c̄</em><input type="range" id="cbarSlider" min="10" max="100" step="10" value="50"><output id="cbarOut">50</output>k</label>
+      <label>惩罚比 <em class="v">R</em> = context / 轮长<input type="range" id="rSlider" min="0" max="2" step="1" value="1"><output id="rOut">100</output></label>
     </div>
-    <div class="tiles">
-      <div class="tile"><div class="tl">命中率 h</div><div class="tv" id="tileH">—</div><div class="td" id="tileHd"></div></div>
-      <div class="tile"><div class="tl">Goodput</div><div class="tv" id="tileG">—</div><div class="td">GPU 利用率仍是 100%</div></div>
-    </div>
-    <p class="chart-title">Goodput 与 session 数 N（当前 M、c̄ 下）</p>
-    <div class="legend"><span><span class="key k1"></span>LRU 超卖</span><span><span class="key k2"></span>session 级准入</span></div>
+    <p class="chart-title">Goodput 与 需求/容量比 x</p>
+    <div class="legend"><span><span class="key k1"></span>LRU 超卖</span><span><span class="key k2"></span>session 级准入（驻留者恒 100%）</span></div>
     <div class="chart-wrap" id="cliffChart"></div>
     <details class="tbl"><summary>模型公式与推导</summary>
-      <p>LRU 超卖：每个回头轮的 stack distance = N·c̄，重算量 = clamp(N·c̄ − M, 0, c̄)（第 4 节的规则），故命中率 h = clamp((M − (N−1)·c̄) / c̄, 0, 1)——在宽度仅 c̄ 的过渡带内从 1 跌到 0。每轮实际算量 = δ + (1−h)·c̄，<b>goodput = δ / (δ + (1−h)·c̄)</b>。</p>
-      <p>session 级准入：K = ⌊M / c̄⌋ 个 session 驻留、全命中；其余 N−K 个不驻留，每轮自付全量重算，但不侵占驻留者的空间。goodput = N·δ / (K·δ + (N−K)·(δ + c̄))。</p>
-      <p>准入控制消灭不了工作量（超额 session 开口就得算，绿线也会下垂），它消灭的是<b>互相踩踏</b>：驻留的 K 个 session 效率恒为 100%，损失被隔离在超额者身上。</p>
+      <p>准静态近似：context 的增长远慢于轮转，把每个会话的 context 记作常数 c̄、每轮新增 δ，R = c̄ / δ。</p>
+      <p>LRU 超卖：对称轮转下人人深度 N·c̄、全体同进退。x ≤ 1 全命中；x &gt; 1 后每轮重算整个 c̄，goodput 从 100% 直落 <b>δ/(δ+c̄) = 1/(1+R)</b>。按容量看，过渡带只有一个会话宽——N 越大越接近纯粹的阶跃。</p>
+      <p>session 级准入：K = M/c̄ 个会话驻留、恒 100% 命中；超额部分每轮自付全量重算 → <b>goodput = x / (1 + (x−1)(1+R))</b>。它同样下垂——准入消灭不了超额的工作量，它消灭的是<b>互相踩踏</b>：损失被隔离在超额者身上，驻留者毫发无损。</p>
     </details>
-    <details class="tbl"><summary>查看数据表（当前 M、c̄ 切片）</summary><div id="cliffTable"></div></details>
+    <details class="tbl"><summary>查看数据表（当前 R）</summary><div id="cliffTable"></div></details>
   </div>
   <p>比前篇更险恶的一点：雪崩发生时 <b>GPU 利用率是 100%</b>——它在满负荷地重算历史。OS 抖动的体征是 CPU 空转，一眼可诊断；KV 雪崩在利用率面板上一片健康，必须盯 goodput、命中率、TTFT 才看得见。</p>
   <div class="warnbox">
@@ -890,55 +884,45 @@ document.getElementById("ehTable").innerHTML =
   logEl.innerHTML = "上面是 t=196s 收场时的栈。按 <b>▶ 从头回放</b> 看它怎么长成这样，或直接拖那条容量线。";
 }
 
-/* ================= 第 5 节：雪崩线 ================= */
-const DELTA = 0.5, NMAXP = 32;
-function hitRate(N, M, cbar) { return clamp((M - (N - 1) * cbar) / cbar, 0, 1); }
-function goodLRU(N, M, cbar) { const h = hitRate(N, M, cbar); return DELTA / (DELTA + (1 - h) * cbar); }
-function goodAdm(N, M, cbar) {
-  const K = Math.min(N, Math.floor(M / cbar));
-  if (K >= N) return 1;
-  return N * DELTA / (K * DELTA + (N - K) * (DELTA + cbar));
-}
+/* ================= 第 5 节：雪崩线（x = Σcontext / M） ================= */
+const R_STOPS = [10, 100, 1000];
+function gLRU(x, R) { return x <= 1 ? 1 : 1 / (1 + R); }
+function gAdm(x, R) { return x <= 1 ? 1 : x / (1 + (x - 1) * (1 + R)); }
 const cliffChart = lineChart(document.getElementById("cliffChart"), {
-  h: 260, xMin: 1, xMax: NMAXP, yMin: 0, yMax: 1,
-  xTicks: [1, 8, 16, 24, 32], yTicks: [0, 0.25, 0.5, 0.75, 1],
-  xLabel: "并发 session 数 N", yLabel: "Goodput",
-  xName: "N", snap: v => clamp(Math.round(v), 1, NMAXP),
-  yFmt: v => Math.round(v * 100) + "%",
+  h: 260, xMin: 0.5, xMax: 2, yMin: 0, yMax: 1,
+  xTicks: [0.5, 1, 1.5, 2], yTicks: [0, 0.25, 0.5, 0.75, 1],
+  xLabel: "x = Σcontext ÷ M（总需求 ÷ 容量）", yLabel: "Goodput",
+  xName: "x", snap: v => clamp(Math.round(v * 20) / 20, 0.5, 2),
+  xFmt: v => (typeof v === "number" ? v.toFixed(2) : v),
+  yFmt: v => (v * 100).toFixed(v < 0.1 ? 1 : 0) + "%",
   series: [
     { name: "LRU 超卖", cls: "s1", points: [] },
     { name: "session 级准入", cls: "s2", points: [] },
   ],
-  ariaLabel: "goodput 随并发数变化的折线图",
+  ariaLabel: "goodput 随需求容量比变化的折线图",
 });
-const nSlider = document.getElementById("nSlider"), capSlider = document.getElementById("capSlider"), cbarSlider = document.getElementById("cbarSlider");
-const nOut = document.getElementById("nOut"), capOut = document.getElementById("capOut"), cbarOut = document.getElementById("cbarOut");
-function updateCliff(structChanged) {
-  const N = +nSlider.value, M = +capSlider.value, cbar = +cbarSlider.value;
-  nOut.textContent = N; capOut.textContent = M; cbarOut.textContent = cbar;
-  if (structChanged) {
-    cliffChart.setData(0, Array.from({ length: NMAXP }, (_, i) => [i + 1, goodLRU(i + 1, M, cbar)]));
-    cliffChart.setData(1, Array.from({ length: NMAXP }, (_, i) => [i + 1, goodAdm(i + 1, M, cbar)]));
-    document.getElementById("cliffTable").innerHTML =
-      "<table><tr><th>N</th><th>命中率 h</th><th>goodput（LRU）</th><th>goodput（准入）</th></tr>" +
-      Array.from({ length: NMAXP }, (_, i) => {
-        const n = i + 1;
-        return `<tr><td>${n}</td><td>${(hitRate(n, M, cbar) * 100).toFixed(0)}%</td>` +
-               `<td>${(goodLRU(n, M, cbar) * 100).toFixed(1)}%</td><td>${(goodAdm(n, M, cbar) * 100).toFixed(1)}%</td></tr>`;
-      }).join("") + "</table>";
-  }
-  const h = hitRate(N, M, cbar), g = goodLRU(N, M, cbar);
-  document.getElementById("tileH").textContent = (h * 100).toFixed(0) + "%";
-  document.getElementById("tileHd").textContent = h >= 1 ? "工作集全部装下" : "回头必丢前缀";
-  document.getElementById("tileG").textContent = (g * 100).toFixed(g > 0.99 ? 1 : 0) + "%";
-  cliffChart.setMarker(N);
+svgEl("line", { x1: cliffChart.X(1), x2: cliffChart.X(1), y1: cliffChart.Y(1), y2: cliffChart.Y(0),
+                class: "gridline", "stroke-dasharray": "3 3" }, cliffChart.svg);
+svgEl("text", { x: cliffChart.X(1) + 6, y: cliffChart.Y(1) + 12, class: "anno strong" }, cliffChart.svg)
+  .textContent = "雪崩线 x = 1";
+const rSlider = document.getElementById("rSlider"), rOut = document.getElementById("rOut");
+function updateCliff() {
+  const R = R_STOPS[+rSlider.value];
+  rOut.textContent = R;
+  const xs = [];
+  for (let x = 0.5; x <= 2.0001; x += 0.05) xs.push(Math.round(x * 20) / 20);
+  cliffChart.setData(0, xs.map(x => [x, gLRU(x, R)]));
+  cliffChart.setData(1, xs.map(x => [x, gAdm(x, R)]));
+  document.getElementById("cliffTable").innerHTML =
+    "<table><tr><th>x</th><th>LRU 超卖</th><th>session 级准入</th></tr>" +
+    [0.9, 1, 1.05, 1.2, 1.5, 2].map(x =>
+      `<tr><td>${x.toFixed(2)}</td><td>${(gLRU(x, R) * 100).toFixed(1)}%</td>` +
+      `<td>${(gAdm(x, R) * 100).toFixed(1)}%</td></tr>`).join("") + "</table>";
 }
-nSlider.addEventListener("input", () => updateCliff(false));
-capSlider.addEventListener("input", () => updateCliff(true));
-cbarSlider.addEventListener("input", () => updateCliff(true));
+rSlider.addEventListener("input", updateCliff);
 
 /* 初始渲染 */
-updateCliff(true);
+updateCliff();
 </script>
 </body>
 </html>
