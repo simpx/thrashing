@@ -328,7 +328,16 @@
     </details>
     <details class="tbl"><summary>查看数据表</summary><div id="cliffTable"></div></details>
   </div>
-  <p>跨线不一定要加会话：<b>turn 变多、context 自己长，也会把 Σcontext 顶过 M</b>——第 4 节的回放就是这么崩的（5 个会话从头到尾没多没少，时序图的红圈却全堆在后半场）。区别只在速度：加会话是跳崖，长 context 是滑坡——过线后每转一圈人人多重算 N·δ，一两圈 goodput 就掉一个数量级。而且药方也在漂移：R 随 context 变大、谷底更深，准入养得起的 K = M/c̄ 在缩水——<b>准入线必须随需求重算，设一次静态值不管用</b>。</p>
+  <p>跨线不一定要加会话：<b>turn 变多、context 自己长，也会把 Σcontext 顶过 M</b>——第 4 节的回放就是这么崩的（5 个会话从头到尾没多没少，时序图的红圈却全堆在后半场）。区别只在速度：加会话是跳崖，长 context 是滑坡——过线后每转一圈人人多重算 N·δ，一两圈 goodput 就掉一个数量级。而且药方也在漂移：R 随 context 变大、谷底更深，准入养得起的 K = M/c̄ 在缩水——<b>准入线必须随需求重算，设一次静态值不管用</b>。下面让 5 个开局迥异的会话一直聊下去，看终局：</p>
+  <div class="card">
+    <div class="controls">
+      <label>容量 <em class="v">M</em><input type="range" id="ageM" min="100" max="400" step="10" value="250"><output id="ageMOut">250</output>k</label>
+    </div>
+    <p class="chart-title">老化热图：每格 = 一次发言（绿 = 前缀全在；红越深 = 重算占比越高；空白 = 没说话）</p>
+    <div class="chart-wrap" id="agePlot"></div>
+    <p class="chart-note">5 个会话的起点、增速、节奏各不相同；竖虚线 = Σcontext 爬过 M 的时刻。拖大 M，红色边界右移——但永远等在右边。</p>
+  </div>
+  <p><b>不管开局怎样，终局都一样</b>：过线之后绿色一列列熄灭，最后人人全红——每轮重算全部历史，池子退化成<b>循环扫描</b>：total &gt; capacity 的数据流水般穿过缓存，LRU 一格都留不住。开局的差异只决定谁先出事，决定不了结局。</p>
   <p>比前篇更险恶的一点：雪崩发生时 <b>GPU 利用率是 100%</b>——它在满负荷地重算历史。OS 抖动的体征是 CPU 空转，一眼可诊断；KV 雪崩在利用率面板上一片健康，必须盯 goodput、命中率、TTFT 才看得见。</p>
   <div class="warnbox">
     <p><b>而且雪崩会自我放大，不需要任何人犯错：</b>每轮变慢 → 在途请求堆积 → 池子更挤；TTFT 超时 → 客户端重试 → 同一个长 prefill 提交两遍。1968 年那个火上浇油的调度器，今天叫超时重试。</p>
@@ -960,6 +969,79 @@ function updateCliff() {
   cliffChart.setMarker(N);
 }
 n5Slider.addEventListener("input", updateCliff);
+
+/* ================= 第 5 节：老化热图（turn 只增，终局 = 循环扫描） ================= */
+{
+  const AGE = [
+    { c0: 5,  d: 4, T: 2, p: 0 },
+    { c0: 60, d: 8, T: 3, p: 1 },
+    { c0: 20, d: 6, T: 2, p: 1 },
+    { c0: 10, d: 3, T: 2, p: 0 },
+    { c0: 35, d: 6, T: 3, p: 2 },
+  ], ROUNDS = 56;
+  const W = 860, ml = 96, mr = 12, mt = 8, rh = 20, mb = 30;
+  const H = mt + AGE.length * rh + mb;
+  const cw = (W - ml - mr) / ROUNDS;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img",
+                             "aria-label": "会话老化热图" }, null);
+  document.getElementById("agePlot").appendChild(svg);
+  AGE.forEach((a, i) => {
+    const lb = svgEl("text", { x: ml - 8, y: mt + i * rh + rh / 2 + 3.5, "text-anchor": "end", class: "ticktext" }, svg);
+    lb.style.fill = `var(--series-${i + 1})`; lb.style.fontWeight = "600";
+    lb.textContent = `会话 ${i + 1} · 每${a.T > 1 ? a.T + "轮" : "轮"}`;
+  });
+  [1, 14, 28, 42, 56].forEach(r =>
+    svgEl("text", { x: ml + (r - 0.5) * cw, y: H - 12, "text-anchor": "middle", class: "ticktext" }, svg).textContent = r);
+  svgEl("text", { x: ml + (W - ml - mr) / 2, y: H - 1, "text-anchor": "middle", class: "axtext" }, svg).textContent = "轮转（大家按各自节奏继续聊）";
+  const cellsG = svgEl("g", {}, svg);
+  const crossLine = svgEl("line", { y1: mt - 2, y2: mt + AGE.length * rh + 2, class: "cap-line0", stroke: "var(--text-secondary)", "stroke-width": 1.5, "stroke-dasharray": "4 3", visibility: "hidden" }, svg);
+  const crossText = svgEl("text", { y: mt - 0, class: "anno halo0", "text-anchor": "middle" }, svg);
+  crossText.style.fill = "var(--text-secondary)"; crossText.style.fontSize = "11px"; crossText.style.fontWeight = "600";
+  const ageM = document.getElementById("ageM"), ageMOut = document.getElementById("ageMOut");
+  function runAge() {
+    const M = +ageM.value;
+    ageMOut.textContent = M;
+    cellsG.innerHTML = "";
+    const ctx = AGE.map(a => a.c0), last = AGE.map((a, i) => i);
+    let evt = AGE.length - 1, cross = null;
+    for (let r = 1; r <= ROUNDS; r++) {
+      AGE.forEach((a, i) => {
+        if ((r - 1 - a.p) % a.T !== 0 || r <= a.p) return;
+        let above = 0;
+        AGE.forEach((b, j) => { if (j !== i && last[j] > last[i]) above += ctx[j]; });
+        const prev = ctx[i];
+        const re = clamp(above + prev - M, 0, prev);
+        const hf = prev ? 1 - re / prev : 1;
+        const cell = svgEl("rect", {
+          x: ml + (r - 1) * cw + 0.5, y: mt + i * rh + 1.5,
+          width: cw - 1, height: rh - 3, rx: 2,
+        }, cellsG);
+        if (re <= 0) {
+          cell.setAttribute("fill", "color-mix(in srgb, var(--status-good) 30%, var(--surface-1))");
+        } else {
+          cell.setAttribute("fill", "var(--status-critical)");
+          cell.setAttribute("fill-opacity", (0.3 + 0.6 * (1 - hf)).toFixed(2));
+        }
+        svgEl("title", {}, cell).textContent =
+          `第 ${r} 轮 · 会话 ${i + 1}：前缀 ${prev}k，重算 ${Math.round(re)}k → 命中 ${Math.round(hf * 100)}%`;
+        ctx[i] += a.d; last[i] = ++evt;
+      });
+      if (cross === null && ctx.reduce((s, v) => s + v, 0) > M) cross = r;
+    }
+    if (cross !== null) {
+      const x = ml + cross * cw;
+      crossLine.setAttribute("x1", x); crossLine.setAttribute("x2", x);
+      crossLine.setAttribute("visibility", "visible");
+      crossText.setAttribute("x", x); crossText.textContent = "Σcontext 爬过 M";
+      crossText.setAttribute("visibility", "visible");
+    } else {
+      crossLine.setAttribute("visibility", "hidden");
+      crossText.setAttribute("visibility", "hidden");
+    }
+  }
+  ageM.addEventListener("input", runAge);
+  runAge();
+}
 
 /* 初始渲染 */
 updateCliff();
