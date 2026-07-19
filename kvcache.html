@@ -292,18 +292,24 @@
 <section id="cliff">
   <div class="kicker">关键点三（下）</div>
   <h2>5. 雪崩线：跨过去就是断崖</h2>
-  <p>上一节那条 goodput–容量小曲线有个膝点——爬过它才满 100%，那就是 5 个会话的雪崩线。那 5 个会话节奏各异、栈深度参差，所以膝点是钝的；把负载推到对称极限它就变成刀锋：N 个会话轮流说话、context 都是 <em class="v">c̄</em>，每次回来深度人人都是 N·c̄，<b>全体同进退</b>——容量只差一个会话的宽度，就人人从全命中跌到全重算。于是变量只剩一个比值：</p>
-  <div class="defbox"><p><b>x = Σcontext ÷ M（总需求 ÷ 容量）。雪崩线恒在 x = 1。</b>悬崖的深度也不是新参数：全 miss 时每轮算 δ + c̄，goodput 跌到 <b>1 / (1 + R)</b>——正是第 3 节的惩罚比。</p></div>
+  <p>上一节小曲线的膝点，就是那 5 个会话的雪崩线——节奏参差，所以膝点是钝的。现在看最坏情况：N 个会话一样胖（context 都是 <em class="v">c̄</em>、每轮新增 δ）、轮流说话。悬崖三步推出来：</p>
+  <div class="defbox">
+    <p><b>① 回来时的深度人人都是 N·c̄</b>——沉默期间其余 N−1 家各说了一句、各压上 c̄，加上自己的 c̄。</p>
+    <p><b>② 深度相同 → 命运相同</b>——N·c̄ ≤ M 人人全命中；一旦超出，人人被啃掉同样长的尾巴 (N·c̄ − M)；超出达到一个会话宽（c̄）时，啃的就是整个前缀。</p>
+    <p><b>③ 所以雪崩线在 x = Σcontext ÷ M = 1</b>，谷底 = 全额重算时的 δ/(δ+c̄) = <b>1/(1+R)</b>——第 3 节 h = 0 的那条公式。</p>
+  </div>
+  <p>用数字感受一下（R = 100）：N=10、c̄=50k、δ=0.5k、M=500k——恰好 x=1，人人全命中，每轮只算 0.5k 新活。<b>多接一个会话</b>（x=1.1）：每次回来深度 550k，超出的 50k 恰好是整个前缀，每轮变成算 50.5k——<b>goodput 从 100% 跌到 1%：加一个会话，吞吐跌一百倍</b>。</p>
   <div class="card">
     <div class="controls">
       <label>惩罚比 <em class="v">R</em> = context / 轮长<input type="range" id="rSlider" min="0" max="2" step="1" value="1"><output id="rOut">100</output></label>
     </div>
     <p class="chart-title">Goodput 与 需求/容量比 x</p>
+    <p class="chart-note">蓝线按 N = 10 个会话画，过渡带宽恰为一个会话（x 从 1 到 1.11）；N 越大悬崖越接近垂直。</p>
     <div class="legend"><span><span class="key k1"></span>LRU 超卖</span><span><span class="key k2"></span>session 级准入（驻留者恒 100%）</span></div>
     <div class="chart-wrap" id="cliffChart"></div>
     <details class="tbl"><summary>模型公式与推导</summary>
       <p>准静态近似：context 的增长远慢于轮转，把每个会话的 context 记作常数 c̄、每轮新增 δ，R = c̄ / δ。</p>
-      <p>LRU 超卖：对称轮转下人人深度 N·c̄、全体同进退。x ≤ 1 全命中；x &gt; 1 后每轮重算整个 c̄，goodput 从 100% 直落 <b>δ/(δ+c̄) = 1/(1+R)</b>。按容量看，过渡带只有一个会话宽——N 越大越接近纯粹的阶跃。</p>
+      <p>LRU 超卖：对称轮转下人人深度 N·c̄、全体同进退。x ≤ 1 全命中；超出后每轮重算被挤出的尾巴 N·c̄ − M，超出达一个会话宽（x ≥ N/(N−1)）后重算整个 c̄，goodput 触底 <b>δ/(δ+c̄) = 1/(1+R)</b>——过渡带只有一个会话宽，N 越大越接近纯粹的阶跃。</p>
       <p>session 级准入：K = M/c̄ 个会话驻留、恒 100% 命中；超额部分每轮自付全量重算 → <b>goodput = x / (1 + (x−1)(1+R))</b>。它同样下垂——准入消灭不了超额的工作量，它消灭的是<b>互相踩踏</b>：损失被隔离在超额者身上，驻留者毫发无损。</p>
     </details>
     <details class="tbl"><summary>查看数据表（当前 R）</summary><div id="cliffTable"></div></details>
@@ -888,8 +894,9 @@ document.getElementById("ehTable").innerHTML =
 }
 
 /* ================= 第 5 节：雪崩线（x = Σcontext / M） ================= */
-const R_STOPS = [10, 100, 1000];
-function gLRU(x, R) { return x <= 1 ? 1 : 1 / (1 + R); }
+const R_STOPS = [10, 100, 1000], NSYM = 10;
+/* 过渡带如实按 N = NSYM 画：超出部分 = clamp(N(x−1)/x, 0, 1) 个 c̄ */
+function gLRU(x, R) { return x <= 1 ? 1 : 1 / (1 + R * Math.min(1, NSYM * (x - 1) / x)); }
 function gAdm(x, R) { return x <= 1 ? 1 : x / (1 + (x - 1) * (1 + R)); }
 const cliffChart = lineChart(document.getElementById("cliffChart"), {
   h: 260, xMin: 0.5, xMax: 2, yMin: 0, yMax: 1,
@@ -918,7 +925,7 @@ function updateCliff() {
   cliffChart.setData(1, xs.map(x => [x, gAdm(x, R)]));
   document.getElementById("cliffTable").innerHTML =
     "<table><tr><th>x</th><th>LRU 超卖</th><th>session 级准入</th></tr>" +
-    [0.9, 1, 1.05, 1.2, 1.5, 2].map(x =>
+    [0.9, 1, 1.05, 1.11, 1.5, 2].map(x =>
       `<tr><td>${x.toFixed(2)}</td><td>${(gLRU(x, R) * 100).toFixed(1)}%</td>` +
       `<td>${(gAdm(x, R) * 100).toFixed(1)}%</td></tr>`).join("") + "</table>";
 }
