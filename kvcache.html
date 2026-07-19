@@ -224,14 +224,17 @@
   <div class="kicker">关键点二</div>
   <h2>3. Miss 有多贵：99% 命中率是不够的</h2>
   <p>KV 世界的惩罚是<b>惩罚比 R = context 长度 ÷ 新一轮长度</b>：5 万 token 上下文的 session 发来 500 token 的一轮，命中只算 500，全 miss 要算 50500——R = 100 很日常，长文档场景轻松上千。单 session 的计算效率（有效计算占比）是：</p>
-  <div class="defbox"><p><em class="v">e</em> = 1 / (1 + (1 − <em class="v">h</em>) × <em class="v">R</em>)　　其中 h 为命中率，R = context / 轮长</p></div>
+  <div class="defbox">
+    <p>每轮实际要算的 = 新增 δ ＋ 丢掉的前缀 (1−h)·C，其中只有 δ 是有效工作（缓存完美时也得算）。有效 ÷ 实际：</p>
+    <p><em class="v">e</em> = δ / (δ + (1−<em class="v">h</em>)·C) = <b>1 / (1 + (1 − <em class="v">h</em>) × <em class="v">R</em>)</b>　　h = context token 的命中率，R = C / δ</p>
+  </div>
   <div class="card">
     <p class="chart-title">效率 e 与命中率 h</p>
     <div class="legend"><span><span class="key k1"></span>R = 10</span><span><span class="key k2"></span>R = 100</span><span><span class="key k3"></span>R = 1000</span></div>
     <div class="chart-wrap" id="ehChart"></div>
     <details class="tbl"><summary>查看数据表</summary><div id="ehTable"></div></details>
   </div>
-  <p><b>R = 100 时，h = 99% 只换来 50% 的效率；h = 90% 只剩 9%</b>——<b>miss 率必须远小于 1/R</b>。这就是为什么 KV cache 的命中率指标动辄要求 99.x%。</p>
+  <p><b>R = 100 时，h = 99% 只换来 50% 的效率</b>（实际算 500+500=1000，里面只有 500 是新活）；<b>h = 90% 只剩 9%</b>——<b>miss 率必须远小于 1/R</b>。这就是为什么 KV cache 的命中率指标动辄要求 99.x%。而 h = 0 的极限 1/(1+R)，就是第 5 节悬崖的谷底。</p>
 </section>
 
 <section id="pool">
