@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>调度策略仿真：命中率会收敛吗</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛰️</text></svg>">
+<style>
+  :root {
+    color-scheme: light;
+    --page:          #f9f9f7;
+    --surface-1:     #fcfcfb;
+    --text-primary:  #0b0b0b;
+    --text-secondary:#52514e;
+    --muted:         #898781;
+    --grid:          #e1e0d9;
+    --baseline:      #c3c2b7;
+    --border:        rgba(11,11,11,0.10);
+    --series-1:      #2a78d6;
+    --series-2:      #d03b3b;
+    --series-3:      #e8a23a;
+    --series-4:      #1baf7a;
+    --status-good:   #0ca30c;
+    --status-critical:#d03b3b;
+    --wash-1:        rgba(42,120,214,0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page:          #0d0d0d;
+      --surface-1:     #1a1a19;
+      --text-primary:  #ffffff;
+      --text-secondary:#c3c2b7;
+      --muted:         #898781;
+      --grid:          #2c2c2a;
+      --baseline:      #383835;
+      --border:        rgba(255,255,255,0.10);
+      --series-1:      #3987e5;
+      --series-2:      #e05555;
+      --series-3:      #f0b45a;
+      --series-4:      #2ec98c;
+      --wash-1:        rgba(57,135,229,0.14);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.7; font-size: 16px;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 20px 80px; }
+  header.hero { padding: 40px 0 8px; }
+  header.hero h1 { font-size: 30px; line-height: 1.3; margin: 0 0 10px; }
+  header.hero p.sub { color: var(--text-secondary); font-size: 16.5px; margin: 0; }
+  section { margin-top: 42px; }
+  h2 { font-size: 21px; margin: 0 0 10px; }
+  p { margin: 8px 0; }
+  .kicker { color: var(--series-1); font-size: 12.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px 16px; margin: 14px 0; }
+  .defbox { border-left: 3px solid var(--series-1); background: var(--wash-1); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 14px 0; font-size: 14.5px; }
+  .defbox p { margin: 5px 0; }
+  em.v { font-style: italic; font-family: Georgia, "Times New Roman", serif; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px 26px; align-items: center; margin: 8px 0 6px; }
+  .controls label { font-size: 13.5px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
+  .controls input[type=range] { width: 130px; accent-color: var(--series-1); }
+  .controls output { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; min-width: 3ch; display: inline-block; }
+  button.run { border: 1px solid var(--series-1); background: var(--series-1); color: #fff; border-radius: 8px; padding: 8px 18px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button.run:hover { opacity: .9; }
+  button.run:disabled { opacity: .5; cursor: default; }
+  .status-line { font-size: 13px; color: var(--muted); margin-top: 6px; min-height: 1.4em; }
+  .chart-wrap { position: relative; margin-top: 8px; }
+  svg.chart { width: 100%; height: auto; display: block; }
+  .chart-title { font-size: 14px; font-weight: 600; margin: 12px 0 0; }
+  .chart-note { font-size: 12.5px; color: var(--muted); margin: 2px 0 0; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .axisline { stroke: var(--baseline); stroke-width: 1; }
+  .ticktext { fill: var(--muted); font-size: 11px; }
+  .axtext { fill: var(--text-secondary); font-size: 12px; }
+  .anno { fill: var(--text-secondary); font-size: 11px; font-weight: 600; }
+  .s1-line { stroke: var(--series-1); stroke-width: 2.2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .s2-line { stroke: var(--series-2); stroke-width: 2.2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .s3-line { stroke: var(--series-3); stroke-width: 2.2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .s4-line { stroke: var(--series-4); stroke-width: 2.2; fill: none; stroke-linejoin: round; stroke-linecap: round; }
+  .crosshair { stroke: var(--baseline); stroke-width: 1; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin: 10px 0 0; }
+  .legend .key { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  .k1 { background: var(--series-1); } .k2 { background: var(--series-2); } .k3 { background: var(--series-3); } .k4 { background: var(--series-4); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 14px; }
+  .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; border-top: 3px solid var(--baseline); }
+  .tile .tl { font-size: 12.5px; color: var(--text-secondary); }
+  .tile .tv { font-size: 24px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .td { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .tt {
+    position: absolute; pointer-events: none; display: none; z-index: 5;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.12); padding: 7px 11px; font-size: 12.5px;
+    color: var(--text-secondary); white-space: nowrap; line-height: 1.6;
+  }
+  .tt b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  details.tbl { margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
+  details.tbl summary { cursor: pointer; color: var(--muted); }
+  footer { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--grid); font-size: 13px; color: var(--muted); }
+  .takeaways { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 14px; }
+  .takeaways .card { margin: 0; }
+  .takeaways b { display: block; margin-bottom: 4px; }
+  .takeaways p { font-size: 13.5px; color: var(--text-secondary); margin: 0; }
+  @media (max-width: 640px) {
+    header.hero h1 { font-size: 24px; }
+    .controls input[type=range] { width: 100px; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<header class="hero">
+  <div class="kicker">生产事故复盘 · 调度器策略仿真</div>
+  <h1>命中率会收敛吗<br><span style="font-size:.7em;color:var(--text-secondary)">400 台 prefill 机器，四种调度策略，跑 90 分钟</span></h1>
+  <p class="sub">同时用"命中率猜测 + 机器负载"做路由，在外部需求完全不变的情况下，命中率会不会自己往下漂移——这里不再是推演，是跑出来看。四种策略共享同一套需求（会话到达、节奏、寿命完全相同），只有路由决策不同。</p>
+</header>
+
+<section id="setup">
+  <div class="kicker">仿真设定</div>
+  <h2>四种策略，同一套需求</h2>
+  <div class="defbox">
+    <p><b>纯亲和</b>：索引说去哪就去哪，从不因负载改路由（理论上限，也是唯一"不可能因策略而漂移"的对照组）。</p>
+    <p><b>朴素阈值</b>：索引给出候选机器；候选负载超过阈值就无脑换一台——不比较代价，见了你上一轮讨论过的"阈值式"病灶。</p>
+    <p><b>TTFT 贪心</b>：把命中和负载换算成同一单位（预计等到第一个 token 的时间），谁小选谁——修掉了阈值式的校准问题，但仍是逐请求评估，看不见"这次 miss 会挤掉谁"。</p>
+    <p><b>TTFT + 隔离</b>：一样按 TTFT 比较，但一旦决定放弃亲和，流量进专门的溢出池，不占用任何人的常驻空间——架构上消灭外部性，不依赖预测。</p>
+  </div>
+  <div class="card">
+    <div class="controls">
+      <label>朴素阈值敏感度<input type="range" id="threshSlider" min="0.02" max="0.3" step="0.01" value="0.05"><output id="threshOut">0.05</output>s</label>
+      <label>单机容量<input type="range" id="capSlider" min="900" max="2000" step="50" value="1500"><output id="capOut">1500</output>k tok</label>
+      <label>索引 TTL<input type="range" id="ttlSlider" min="120" max="1800" step="60" value="900"><output id="ttlOut">900</output>s</label>
+      <button class="run" id="runBtn">▶ 跑一遍（约 15-20 秒）</button>
+    </div>
+    <p class="status-line" id="statusLine">调好参数后点击运行；命中率越低越触发得多，朴素阈值在某个临界点附近会从"缓慢下滑"突变成"瞬间崩溃"，可以自己找那个点。</p>
+  </div>
+</section>
+
+<section id="result" style="display:none">
+  <div class="kicker">结果</div>
+  <h2>四条命中率曲线</h2>
+  <div class="card">
+    <p class="chart-title">集群整体命中率随时间（90 分钟，每 5 分钟采样）</p>
+    <div class="legend">
+      <span><span class="key k1"></span>纯亲和（理论上限）</span>
+      <span><span class="key k2"></span>朴素阈值（不计代价）</span>
+      <span><span class="key k3"></span>TTFT 贪心（计代价，逐请求）</span>
+      <span><span class="key k4"></span>TTFT + 隔离（计代价，架构隔离）</span>
+    </div>
+    <div class="chart-wrap" id="hitChart"></div>
+    <div class="tiles" id="finalTiles"></div>
+  </div>
+
+  <div class="card">
+    <p class="chart-title">400 台机器的命中率分布：起点 vs 终点</p>
+    <p class="chart-note">每根柱子代表一批机器落在某个命中率区间；纯亲和分布几乎不动，朴素阈值会看到分布整体左移、甚至裂成两群——一群还健康，一群已经被拖垮。</p>
+    <div class="controls" style="margin-top:10px">
+      <label>查看策略
+        <select id="distPolicy" style="font-size:13.5px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary)">
+          <option value="pure_affinity">纯亲和</option>
+          <option value="naive_threshold" selected>朴素阈值</option>
+          <option value="ttft_greedy">TTFT 贪心</option>
+          <option value="ttft_isolated">TTFT + 隔离</option>
+        </select>
+      </label>
+    </div>
+    <div class="chart-wrap" id="distChart"></div>
+  </div>
+
+  <div class="takeaways" id="takeawayCards"></div>
+</section>
+
+<footer>
+  <p>页面中的会话到达、节奏、寿命由固定随机种子生成，四种策略共享同一份"世界演化"随机流，路由决策的随机采样单独一条流，保证四组仿真面对的是同一套需求。仅供内部推演使用，参数与真实生产环境不完全对应。</p>
+</footer>
+
+</main>
+
+<script>
+"use strict";
+/* ================= 仿真核心（同 sim-core.js） ================= */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function makeSim(cfg) {
+  const rndWorld = mulberry32(cfg.seed || 42);
+  const rndRoute = mulberry32((cfg.seed || 42) ^ 0x9e3779b9);
+  const rnd = rndWorld;
+  const expRand = (mean) => -Math.log(1 - rnd()) * mean;
+  const lognormalRand = (mean, sigma) => {
+    const mu = Math.log(mean) - sigma * sigma / 2;
+    const u1 = Math.max(rnd(), 1e-9), u2 = rnd();
+    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return Math.exp(mu + sigma * z);
+  };
+  const N_M = cfg.machines, M_CAP = cfg.capacityPerMachine, TICK = cfg.tickSeconds, DELTA = cfg.turnTokens;
+  const MATURE_TURNS = Math.round(cfg.rMature), TTL = cfg.indexTtlSeconds, LAMBDA_NEW = cfg.newSessionRatePerSec;
+  const CAP_TOKENS_PER_TICK = cfg.machineTokensPerSec * TICK;
+  const machines = Array.from({ length: N_M }, () => ({ res: new Map(), used: 0, backlog: 0, winMiss: 0, winCtxPrev: 0 }));
+  function machineLoadEstimate(mi) { return machines[mi].backlog / cfg.machineTokensPerSec; }
+  function pickColdMachine() {
+    let best = -1, bestLoad = Infinity;
+    for (let k = 0; k < cfg.altSampleSize; k++) {
+      const mi = Math.floor(rndRoute() * N_M), load = machineLoadEstimate(mi);
+      if (load < bestLoad) { bestLoad = load; best = mi; }
+    }
+    return best;
+  }
+  let evictAccum = 0; // 累计逐出的会话数（不是重路由次数）——按需读取/清零
+  function evictToFit(mi, needTokens) {
+    const m = machines[mi];
+    while (m.used + needTokens > M_CAP && m.res.size) {
+      const k = m.res.keys().next().value;
+      m.used -= m.res.get(k); m.res.delete(k);
+      evictAccum++;
+    }
+  }
+  function residentCtx(mi, id) { return machines[mi].res.get(id) || 0; }
+  function touchMachine(mi, id, newCtx) {
+    const m = machines[mi], old = m.res.get(id) || 0;
+    if (m.res.has(id)) { m.res.delete(id); m.used -= old; }
+    evictToFit(mi, newCtx);
+    m.res.set(id, newCtx); m.used += newCtx;
+  }
+  const index = new Map(); let nextId = 1; const sessions = new Map(); let simTime = 0;
+  function newSession() {
+    const id = nextId++;
+    const cadence = lognormalRand(cfg.turnGapMean, 0.7);
+    const endsAtTurn = Math.max(3, Math.round(lognormalRand(MATURE_TURNS * cfg.lifeMult, 0.5)));
+    sessions.set(id, { ctx: 0, turns: 0, cadence, nextTurnAt: simTime + expRand(cadence * 0.3), endsAtTurn });
+    return id;
+  }
+  function warmStart() {
+    const avgLifetimeSec = MATURE_TURNS * cfg.lifeMult * cfg.turnGapMean;
+    const targetConcurrent = Math.round(LAMBDA_NEW * avgLifetimeSec);
+    for (let i = 0; i < targetConcurrent; i++) {
+      const id = newSession(), s = sessions.get(id);
+      s.turns = Math.floor(rnd() * s.endsAtTurn); s.ctx = s.turns * DELTA;
+      s.nextTurnAt = simTime + expRand(s.cadence);
+      const mi = Math.floor(rnd() * N_M);
+      touchMachine(mi, id, s.ctx);
+      index.set(id, { mi, ts: simTime - rnd() * cfg.turnGapMean });
+    }
+  }
+  function routePureAffinity(id) {
+    const idx = index.get(id);
+    if (!idx || idx.mi < 0 || simTime - idx.ts > TTL) return { mi: pickColdMachine(), cold: true };
+    return { mi: idx.mi };
+  }
+  function pickAltMachine(excludeMi) {
+    let best = -1, bestLoad = Infinity;
+    for (let k = 0; k < cfg.altSampleSize; k++) {
+      const mi = Math.floor(rndRoute() * N_M);
+      if (mi === excludeMi) continue;
+      const load = machineLoadEstimate(mi);
+      if (load < bestLoad) { bestLoad = load; best = mi; }
+    }
+    return best < 0 ? excludeMi : best;
+  }
+  function routeNaiveThreshold(id) {
+    const idx = index.get(id);
+    if (!idx || idx.mi < 0 || simTime - idx.ts > TTL) return { mi: pickColdMachine(), cold: true };
+    const home = idx.mi;
+    if (machineLoadEstimate(home) > cfg.loadThresholdSec) return { mi: pickAltMachine(home), rerouted: true };
+    return { mi: home };
+  }
+  function estTTFT(mi, ctxPrev, assumeHit) {
+    const q = machineLoadEstimate(mi), proc = assumeHit ? DELTA : (DELTA + ctxPrev);
+    return q + proc / cfg.machineTokensPerSec;
+  }
+  function routeTTFT(id, ctxPrev) {
+    const idx = index.get(id);
+    if (!idx || idx.mi < 0 || simTime - idx.ts > TTL) return { mi: pickColdMachine(), cold: true };
+    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, true);
+    const alt = pickAltMachine(home), ttftAlt = estTTFT(alt, ctxPrev, false);
+    if (ttftAlt < ttftHome) return { mi: alt, rerouted: true };
+    return { mi: home };
+  }
+  const OVERFLOW_N = Math.max(1, Math.round(N_M * cfg.overflowFrac));
+  const overflowMachines = Array.from({ length: OVERFLOW_N }, () => ({ backlog: 0 }));
+  function routeTTFTIsolated(id, ctxPrev) {
+    const idx = index.get(id);
+    if (!idx || idx.mi < 0 || simTime - idx.ts > TTL) return { mi: pickColdMachine(), cold: true };
+    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, true);
+    const ovIdx = Math.floor(rndRoute() * OVERFLOW_N), ov = overflowMachines[ovIdx];
+    const ttftOv = ov.backlog / cfg.machineTokensPerSec + (DELTA + ctxPrev) / cfg.machineTokensPerSec;
+    if (ttftOv < ttftHome) return { overflowIdx: ovIdx, rerouted: true };
+    return { mi: home };
+  }
+  const ROUTERS = { pure_affinity: routePureAffinity, naive_threshold: routeNaiveThreshold, ttft_greedy: routeTTFT, ttft_isolated: routeTTFTIsolated };
+  function step(policy) {
+    const router = ROUTERS[policy];
+    let missTok = 0, newTok = 0, ctxPrevSum = 0, reqCount = 0, rerouteCount = 0;
+    const due = [];
+    for (const [id, s] of sessions) if (s.nextTurnAt <= simTime) due.push(id);
+    const expectedNew = LAMBDA_NEW * TICK;
+    const nNew = Math.floor(expectedNew) + (rnd() < (expectedNew - Math.floor(expectedNew)) ? 1 : 0);
+    for (let i = 0; i < nNew; i++) due.push(newSession());
+    for (const id of due) {
+      const s = sessions.get(id);
+      if (!s) continue;
+      reqCount++;
+      const ctxPrev = s.ctx;
+      const route = router(id, ctxPrev);
+      let recompute;
+      if (route.overflowIdx !== undefined) {
+        rerouteCount++;
+        recompute = ctxPrev;
+        overflowMachines[route.overflowIdx].backlog += DELTA + recompute;
+        index.set(id, { mi: -1, ts: simTime });
+      } else {
+        const mi = route.mi;
+        if (route.rerouted) rerouteCount++;
+        const before = residentCtx(mi, id);
+        const actualPrev = Math.min(before, ctxPrev);
+        recompute = ctxPrev - actualPrev;
+        machines[mi].backlog += DELTA + recompute;
+        touchMachine(mi, id, ctxPrev + DELTA);
+        index.set(id, { mi, ts: simTime });
+        if (ctxPrev > 0) { machines[mi].winMiss += recompute; machines[mi].winCtxPrev += ctxPrev; }
+      }
+      newTok += DELTA; missTok += recompute;
+      if (ctxPrev > 0) ctxPrevSum += ctxPrev;
+      s.ctx = ctxPrev + DELTA; s.turns++;
+      if (s.turns >= s.endsAtTurn) { sessions.delete(id); index.delete(id); }
+      else s.nextTurnAt = simTime + expRand(s.cadence);
+    }
+    for (const m of machines) m.backlog = Math.max(0, m.backlog - CAP_TOKENS_PER_TICK);
+    for (const ov of overflowMachines) ov.backlog = Math.max(0, ov.backlog - CAP_TOKENS_PER_TICK);
+    simTime += TICK;
+    const evictCount = evictAccum; evictAccum = 0;
+    return { missTok, newTok, ctxPrevSum, reqCount, rerouteCount, evictCount, sessionCount: sessions.size };
+  }
+  function snapshot() {
+    return {
+      simTime, nextId,
+      machines: machines.map(m => ({ res: Array.from(m.res.entries()), used: m.used, backlog: m.backlog })),
+      overflowMachines: overflowMachines.map(o => ({ backlog: o.backlog })),
+      sessions: Array.from(sessions.entries()), index: Array.from(index.entries()),
+    };
+  }
+  function loadSnapshot(snap) {
+    simTime = snap.simTime; nextId = snap.nextId;
+    snap.machines.forEach((sm, i) => { machines[i].res = new Map(sm.res); machines[i].used = sm.used; machines[i].backlog = sm.backlog; });
+    snap.overflowMachines.forEach((so, i) => { overflowMachines[i].backlog = so.backlog; });
+    sessions.clear(); for (const [k, v] of snap.sessions) sessions.set(k, v);
+    index.clear(); for (const [k, v] of snap.index) index.set(k, v);
+  }
+  return { step, machines, get simTime() { return simTime; }, warmStart, sessions, snapshot, loadSnapshot };
+}
+
+/* ================= 图表工具（沿用站内既有风格） ================= */
+const SVGNS = "http://www.w3.org/2000/svg";
+function svgEl(name, attrs, parent) {
+  const e = document.createElementNS(SVGNS, name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function lineChart(root, cfg) {
+  const W = cfg.w || 900, H = cfg.h || 280;
+  const ml = cfg.ml || 46, mr = cfg.mr || 16, mt = cfg.mt || 20, mb = cfg.mb || 38;
+  const pw = W - ml - mr, ph = H - mt - mb;
+  const X = v => ml + (v - cfg.xMin) / (cfg.xMax - cfg.xMin) * pw;
+  const Y = v => mt + ph - (v - cfg.yMin) / (cfg.yMax - cfg.yMin) * ph;
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": cfg.ariaLabel || "" }, null);
+  root.appendChild(svg);
+  for (const yt of cfg.yTicks) {
+    svgEl("line", { x1: ml, x2: ml + pw, y1: Y(yt), y2: Y(yt), class: "gridline" }, svg);
+    svgEl("text", { x: ml - 8, y: Y(yt) + 4, "text-anchor": "end", class: "ticktext" }, svg).textContent = (cfg.yFmt || String)(yt);
+  }
+  svgEl("line", { x1: ml, x2: ml + pw, y1: Y(cfg.yMin), y2: Y(cfg.yMin), class: "axisline" }, svg);
+  for (const xt of cfg.xTicks) svgEl("text", { x: X(xt), y: mt + ph + 18, "text-anchor": "middle", class: "ticktext" }, svg).textContent = (cfg.xFmt || String)(xt);
+  if (cfg.xLabel) svgEl("text", { x: ml + pw / 2, y: H - 4, "text-anchor": "middle", class: "axtext" }, svg).textContent = cfg.xLabel;
+  if (cfg.yLabel) svgEl("text", { x: ml - 40, y: 12, class: "axtext" }, svg).textContent = cfg.yLabel;
+  const paths = cfg.series.map(s => svgEl("path", { class: s.cls + "-line", d: "" }, svg));
+  const cross = svgEl("line", { class: "crosshair", y1: mt, y2: mt + ph, visibility: "hidden" }, svg);
+  const tt = document.createElement("div");
+  tt.className = "tt"; root.appendChild(tt);
+  const data = cfg.series.map(s => s.points || []);
+  cfg.series.forEach((s, i) => paths[i].setAttribute("d", data[i].length ? "M" + data[i].map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("L") : ""));
+  svg.addEventListener("mousemove", ev => {
+    const r = svg.getBoundingClientRect();
+    const mx = (ev.clientX - r.left) / r.width * W;
+    if (mx < ml - 4 || mx > ml + pw + 4) { tt.style.display = "none"; cross.setAttribute("visibility", "hidden"); return; }
+    const xv = cfg.snap(cfg.xMin + (mx - ml) / pw * (cfg.xMax - cfg.xMin));
+    cross.setAttribute("x1", X(xv)); cross.setAttribute("x2", X(xv)); cross.setAttribute("visibility", "visible");
+    const rows = [];
+    cfg.series.forEach((s, i) => {
+      const p = data[i].find(p => p[0] === xv);
+      if (p) rows.push(`<span class="key k${i+1}"></span>${s.name}：<b>${(cfg.yFmt || String)(p[1])}</b>`);
+    });
+    if (!rows.length) { tt.style.display = "none"; return; }
+    tt.innerHTML = `<div>${cfg.xName || "x"} = <b>${(cfg.xFmt || String)(xv)}</b></div>` + rows.map(r => `<div>${r}</div>`).join("");
+    tt.style.display = "block";
+    const px = X(xv) / W * r.width;
+    tt.style.left = Math.min(px + 14, r.width - tt.offsetWidth - 4) + "px";
+    tt.style.top = (ev.clientY - r.top - 10) + "px";
+  });
+  svg.addEventListener("mouseleave", () => { tt.style.display = "none"; cross.setAttribute("visibility", "hidden"); });
+  return { svg };
+}
+
+/* ================= 页面逻辑 ================= */
+const BASE_CFG = {
+  seed: 7, machines: 400, tickSeconds: 5, turnTokens: 800, rMature: 100, lifeMult: 1.0,
+  newSessionRatePerSec: 2.5, turnGapMean: 55, machineTokensPerSec: 30000, altSampleSize: 4, overflowFrac: 0.05,
+};
+const WARMUP_MIN = 180, RUN_MIN = 90, SAMPLE_MIN = 5;
+const POLICIES = [
+  { id: "pure_affinity", name: "纯亲和", cls: "s1" },
+  { id: "naive_threshold", name: "朴素阈值", cls: "s2" },
+  { id: "ttft_greedy", name: "TTFT 贪心", cls: "s3" },
+  { id: "ttft_isolated", name: "TTFT + 隔离", cls: "s4" },
+];
+
+const threshSlider = document.getElementById("threshSlider"), threshOut = document.getElementById("threshOut");
+const capSlider = document.getElementById("capSlider"), capOut = document.getElementById("capOut");
+const ttlSlider = document.getElementById("ttlSlider"), ttlOut = document.getElementById("ttlOut");
+threshSlider.oninput = () => threshOut.textContent = threshSlider.value;
+capSlider.oninput = () => capOut.textContent = capSlider.value;
+ttlSlider.oninput = () => ttlOut.textContent = ttlSlider.value;
+
+const runBtn = document.getElementById("runBtn"), statusLine = document.getElementById("statusLine");
+const resultSection = document.getElementById("result");
+let lastResults = null; // { policy: { trace: [[min,h]], reroute, distStart, distEnd } }
+
+function yieldToUI() { return new Promise(r => setTimeout(r, 0)); }
+
+async function runAll() {
+  runBtn.disabled = true;
+  const cfg = {
+    ...BASE_CFG,
+    capacityPerMachine: +capSlider.value * 1000,
+    loadThresholdSec: +threshSlider.value,
+    indexTtlSeconds: +ttlSlider.value,
+  };
+  statusLine.textContent = "预热中（模拟 3 小时，让 400 台机器的常驻会话先到稳态）…";
+  await yieldToUI();
+  const t0 = performance.now();
+  const warmSim = makeSim(cfg);
+  warmSim.warmStart();
+  const warmTicks = Math.round(WARMUP_MIN * 60 / cfg.tickSeconds);
+  for (let i = 0; i < warmTicks; i++) {
+    warmSim.step("pure_affinity");
+    if (i % 400 === 0) await yieldToUI();
+  }
+  // 起点分布 / 起点命中率：必须在预热用的 sim 上、快照之前读——
+  // 快照只保存缓存内容（res/used/backlog），不保存窗口统计，
+  // 克隆出的新 sim 一开始窗口计数器是空的，四个策略共用这一份真实起点。
+  const { dist: distStart, avgH: startH } = readWindowStats(warmSim);
+  const snap = warmSim.snapshot();
+  const results = {};
+  for (const p of POLICIES) {
+    statusLine.textContent = `跑 ${p.name} 策略…`;
+    await yieldToUI();
+    const sim = makeSim(cfg);
+    sim.loadSnapshot(snap);
+    const ticks = Math.round(RUN_MIN * 60 / cfg.tickSeconds);
+    const sampleTicks = Math.round(SAMPLE_MIN * 60 / cfg.tickSeconds);
+    let wMiss = 0, wCtx = 0, reroute = 0, reqTotal = 0, evictTotal = 0;
+    const trace = [[0, startH]];
+    for (let i = 0; i < ticks; i++) {
+      const r = sim.step(p.id);
+      wMiss += r.missTok; wCtx += r.ctxPrevSum; reroute += r.rerouteCount; reqTotal += r.reqCount; evictTotal += r.evictCount;
+      if ((i + 1) % sampleTicks === 0) {
+        trace.push([(i + 1) * cfg.tickSeconds / 60, wCtx > 0 ? 100 * (1 - wMiss / wCtx) : trace[trace.length-1][1]]);
+        wMiss = 0; wCtx = 0;
+      }
+      if (i % 600 === 0) await yieldToUI();
+    }
+    const { dist: distEnd } = readWindowStats(sim);
+    results[p.id] = { trace, rerouteFrac: reroute / reqTotal, evictTotal, distStart, distEnd, finalH: trace[trace.length - 1][1] };
+  }
+  lastResults = results;
+  statusLine.textContent = `完成，用时 ${((performance.now() - t0) / 1000).toFixed(1)}s。`;
+  renderResults(cfg, results);
+  runBtn.disabled = false;
+}
+
+// 读一次窗口统计，同时算出"每机分布"和"全局聚合"两样东西，读完清零——
+// avgHitOf/machineHitDist 分开调用会互相清空对方要读的数据，必须合并成一次。
+function readWindowStats(sim) {
+  const dist = []; let miss = 0, ctx = 0;
+  for (const m of sim.machines) {
+    const h = m.winCtxPrev > 0 ? 100 * (1 - m.winMiss / m.winCtxPrev) : null;
+    dist.push(h);
+    miss += m.winMiss; ctx += m.winCtxPrev;
+    m.winMiss = 0; m.winCtxPrev = 0;
+  }
+  return { dist, avgH: ctx > 0 ? 100 * (1 - miss / ctx) : 90 };
+}
+
+function renderResults(cfg, results) {
+  resultSection.style.display = "";
+  const hitChartEl = document.getElementById("hitChart");
+  hitChartEl.innerHTML = "";
+  lineChart(hitChartEl, {
+    h: 300, xMin: 0, xMax: RUN_MIN, yMin: 0, yMax: 100,
+    xTicks: [0, 15, 30, 45, 60, 75, 90], yTicks: [0, 25, 50, 75, 100],
+    xLabel: "分钟", yLabel: "命中率 %",
+    xName: "t", snap: v => Math.round(v / SAMPLE_MIN) * SAMPLE_MIN,
+    xFmt: v => v + "min", yFmt: v => v.toFixed(1) + "%",
+    series: POLICIES.map(p => ({ name: p.name, cls: p.cls, points: results[p.id].trace })),
+    ariaLabel: "四种策略的集群命中率随时间变化",
+  });
+
+  const tilesEl = document.getElementById("finalTiles");
+  tilesEl.innerHTML = POLICIES.map(p => {
+    const r = results[p.id];
+    const color = `var(--${p.cls === "s1" ? "series-1" : p.cls === "s2" ? "series-2" : p.cls === "s3" ? "series-3" : "series-4"})`;
+    return `<div class="tile" style="border-top-color:${color}">
+      <div class="tl">${p.name}</div>
+      <div class="tv">${r.finalH.toFixed(1)}%</div>
+      <div class="td">90min 命中率 · 搬迁占比 ${(r.rerouteFrac*100).toFixed(1)}%</div>
+      <div class="td">90min 累计逐出会话数 ${(r.evictTotal/1000).toFixed(0)}k</div>
+    </div>`;
+  }).join("");
+
+  renderDist(results, document.getElementById("distPolicy").value);
+  document.getElementById("distPolicy").onchange = e => renderDist(results, e.target.value);
+
+  const startH = results.pure_affinity.trace[0][1];
+  const naiveEnd = results.naive_threshold.finalH, greedyEnd = results.ttft_greedy.finalH, isoEnd = results.ttft_isolated.finalH, paEnd = results.pure_affinity.finalH;
+  const evPA = results.pure_affinity.evictTotal, evNaive = results.naive_threshold.evictTotal, evGreedy = results.ttft_greedy.evictTotal, evIso = results.ttft_isolated.evictTotal;
+  document.getElementById("takeawayCards").innerHTML = `
+    <div class="card"><b>①外部需求从头到尾没变</b><p>四组仿真共享同一份会话到达/节奏/寿命，差异 100% 来自路由策略本身——朴素阈值从 ${startH.toFixed(0)}% 掉到 ${naiveEnd.toFixed(1)}%，纯粹是自己造成的。</p></div>
+    <div class="card"><b>②TTFT 赢在"连带驱逐"更少，不是负载更均</b><p>90min 累计逐出会话数：纯亲和 ${(evPA/1000).toFixed(0)}k，TTFT 贪心只有 ${(evGreedy/1000).toFixed(0)}k（少 ${(100*(1-evGreedy/evPA)).toFixed(0)}%）——门槛随 context 大小同比升高，TTFT 天然只挪小请求；挪走一笔小写入，热机器就不用为了腾地方去挤自己其他常驻会话。</p></div>
+    <div class="card"><b>③朴素阈值反过来在制造连带驱逐</b><p>朴素阈值逐出数 ${(evNaive/1000).toFixed(0)}k，是纯亲和的 ${(evNaive/evPA).toFixed(1)} 倍——不看大小见负载超线就挪，经常把大会话的全量重算结果甩给随机一台机器，那台机器被迫挤掉自己一堆常驻会话，就是理论上说的"miss 传染"级联，这里能直接数出来。</p></div>
+    <div class="card"><b>④隔离的边际价值：${(evIso/1000).toFixed(0)}k 逐出，比 TTFT 贪心更少</b><p>TTFT+隔离终值 ${isoEnd.toFixed(1)}%，逐出数比 TTFT 贪心（${(evGreedy/1000).toFixed(0)}k）更低——"代价算对"已经拿到大部分收益，隔离在此基础上进一步压低了连带驱逐；搬迁率更高、饱和度更紧时差距会更明显。调阈值滑杆试试。</p></div>`;
+}
+
+function renderDist(results, policyId) {
+  const el = document.getElementById("distChart");
+  el.innerHTML = "";
+  const r = results[policyId];
+  const bins = 20, W = 900, H = 260, ml = 46, mr = 16, mt = 16, mb = 40;
+  const bw = (W - ml - mr) / bins;
+  function hist(arr) {
+    const h = new Array(bins).fill(0);
+    for (const v of arr) { if (v == null) continue; let b = Math.floor(v / 100 * bins); b = Math.max(0, Math.min(bins - 1, b)); h[b]++; }
+    return h;
+  }
+  const hs = hist(r.distStart), he = hist(r.distEnd);
+  const peak = Math.max(1, ...hs, ...he);
+  const Y = v => mt + (H - mt - mb) * (1 - v / peak);
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", "aria-label": "机器命中率分布直方图" }, null);
+  el.appendChild(svg);
+  svgEl("line", { x1: ml, x2: W - mr, y1: Y(0), y2: Y(0), class: "axisline" }, svg);
+  [0, 25, 50, 75, 100].forEach(v => {
+    const x = ml + v / 100 * (W - ml - mr);
+    svgEl("text", { x, y: H - mb + 16, "text-anchor": "middle", class: "ticktext" }, svg).textContent = v + "%";
+    svgEl("line", { x1: x, x2: x, y1: mt, y2: Y(0), class: "gridline" }, svg);
+  });
+  svgEl("text", { x: ml + (W - ml - mr) / 2, y: H - 4, "text-anchor": "middle", class: "axtext" }, svg).textContent = "该机器窗口内的命中率";
+  svgEl("text", { x: ml - 40, y: 12, class: "axtext" }, svg).textContent = "机器数";
+  for (let i = 0; i < bins; i++) {
+    const x = ml + i * bw;
+    if (hs[i] > 0) {
+      const bar = svgEl("rect", { x: x + bw*0.12, width: bw*0.32, y: Y(hs[i]), height: Y(0)-Y(hs[i]), fill: "var(--muted)", opacity: .55, rx: 2 }, svg);
+      svgEl("title", {}, bar).textContent = `起点：命中率 ${i*5}-${i*5+5}% 的机器有 ${hs[i]} 台`;
+    }
+    if (he[i] > 0) {
+      const bar = svgEl("rect", { x: x + bw*0.52, width: bw*0.36, y: Y(he[i]), height: Y(0)-Y(he[i]), fill: "var(--series-2)", opacity: .85, rx: 2 }, svg);
+      svgEl("title", {}, bar).textContent = `终点：命中率 ${i*5}-${i*5+5}% 的机器有 ${he[i]} 台`;
+    }
+  }
+  const legend = document.createElement("div");
+  legend.className = "legend";
+  legend.innerHTML = `<span><span class="key" style="background:var(--muted);opacity:.55"></span>起点（预热后）</span><span><span class="key" style="background:var(--series-2)"></span>终点（90min 后）</span>`;
+  el.appendChild(legend);
+}
+
+runBtn.addEventListener("click", runAll);
+</script>
+</body>
+</html>
