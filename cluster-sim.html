@@ -127,14 +127,14 @@
     <p><b>记号</b>：<em class="v">q</em>(m) = 机器 m 当前预计排队秒数（backlog/算力）；<em class="v">δ</em> = 本轮新增 token；<em class="v">C</em> = 这个会话<b>到目前为止积累的全部前缀长度</b>（不是这一轮新增，是它整段历史）；<em class="v">rate</em> = 单机 token/s 处理能力；home = 索引记录的归属机器。走 home 只算 δ（前缀免费复用）；走 alt 假设一定是全量冷 miss，要算 δ+<em class="v">C</em>——不建模"alt 上恰好也有残留缓存"的中间态（实测这类幽灵命中占比只有 0.1-0.2%，可以忽略）。</p>
     <p><b>纯亲和</b>：<code>route = home</code>（索引有效就去索引说的那台，从不因负载改路由——理论上限，也是唯一"不可能因策略而漂移"的对照组）。</p>
     <p><b>朴素阈值</b>：<code>if q(home) &gt; θ: route = argmin_alt q(alt)  else: route = home</code>——只看 <em class="v">q</em>(home) 一个数字过没过线，θ 是滑杆上那个"敏感度"；换机器的判断里完全没出现 C，不比较代价，就是"阈值式"病灶。</p>
-    <p><b>TTFT 贪心</b>：<code>TTFT(home) = q(home) + δ/rate</code>，<code>TTFT(alt) = q(alt) + (δ+C)/rate</code>；<code>route = (TTFT(alt) &lt; TTFT(home)) ? alt : home</code>。把两边化简，重路由的触发条件其实是：</p>
+    <p><b>TTFT 贪心</b>：<code>TTFT(home) = q(home) + δ/rate</code>（home 是否真命中不查，无条件假设是——这是延续早前讨论定下的简化，实际执行时算量仍按真实驻留量结算，这个假设只影响决策，不影响结果统计），<code>TTFT(alt) = q(alt) + (δ+C)/rate</code>；<code>route = (TTFT(alt) &lt; TTFT(home)) ? alt : home</code>。化简后触发条件是：</p>
     <p style="text-align:center"><code><b>q(home) − q(alt) &gt; C / rate</b></code></p>
-    <p>右边正比于 <em class="v">C</em>——这次要复用的前缀越大，需要的排队落差就要越大，重路由才划算。<b>这就是它不靠隔离也能护住别人的原因</b>：门槛随体量自动收紧，天然只挪便宜的小请求，贵的大会话门槛高到几乎碰不到，挪的时候写进 alt 的量也小，连带驱逐自然就少（tiles 里的逐出数能直接看到这个效果）。</p>
-    <p><b>TTFT + 隔离</b>：判断式一样，只是 alt 换成专门的溢出池机器——即使触发条件判断出错（比如低估了 C 的代价），溢出池也从不装任何人的常驻数据，写进去不会挤走谁。架构上把外部性摁死，不依赖"C 越大越少挪"这个自我选择去兜底。</p>
+    <p>右边正比于 <em class="v">C</em>，这句话反过来读更准确：<b>C 越小，门槛越低</b>——一个小请求，只要 home 有一点点排队落差就会被挪走，几乎没有免疫门槛。而 q(home) 是同一台机器上<b>所有排队请求共享的一个数</b>：只要有一个贵会话的重算恰好堆在队列里，同一时间窗口内排在它后面的一串本来毫不相干的小请求，都会看到被顶高的 q(home)、集体被判定"该走"——一次贵请求能带崩一整批无辜的小请求。这两条叠加的结果是重路由率反而<b>高于</b>朴素阈值（tiles 里能看到），逐出数仍然远超纯亲和：<b>算得准不等于挪得少，隔离不是可有可无的加分项</b>。</p>
+    <p><b>TTFT + 隔离</b>：判断式一样，只是 alt 换成专门的溢出池机器——不管上面两条效应多严重、判断多草率，溢出池从不装任何人的常驻数据，写进去不会挤走谁。架构上把外部性摁死，不依赖"猜得准"去兜底，这也是四条曲线里唯一稳定跟在纯亲和后面、没有掉队的一条。</p>
   </div>
   <div class="card">
     <div class="controls">
-      <label>朴素阈值敏感度<input type="range" id="threshSlider" min="0.02" max="0.3" step="0.01" value="0.05"><output id="threshOut">0.05</output>s</label>
+      <label>朴素阈值敏感度<input type="range" id="threshSlider" min="0.5" max="8" step="0.1" value="2.4"><output id="threshOut">2.4</output>s</label>
       <label>单机容量<input type="range" id="capSlider" min="900" max="2000" step="50" value="1500"><output id="capOut">1500</output>k tok</label>
       <label>索引 TTL<input type="range" id="ttlSlider" min="120" max="1800" step="60" value="900"><output id="ttlOut">900</output>s</label>
       <button class="run" id="runBtn">▶ 跑一遍（约 15-20 秒）</button>
@@ -349,14 +349,18 @@ function makeSim(cfg) {
       simTime, nextId,
       machines: machines.map(m => ({ res: Array.from(m.res.entries()), used: m.used, backlog: m.backlog })),
       overflowMachines: overflowMachines.map(o => ({ backlog: o.backlog })),
-      sessions: Array.from(sessions.entries()), index: Array.from(index.entries()),
+      // 深拷贝每个会话对象——只拷贝 Map 容器不够：四个策略从同一份快照加载后，
+      // 若共享同一批会话对象引用，谁先跑、谁的 mutate（s.ctx=…, s.turns++）就会
+      // 污染后面所有策略的"起点"，越晚跑的策略看到的就越不是真正的快照状态。
+      sessions: Array.from(sessions, ([k, v]) => [k, { ...v }]), index: Array.from(index.entries()),
     };
   }
   function loadSnapshot(snap) {
     simTime = snap.simTime; nextId = snap.nextId;
     snap.machines.forEach((sm, i) => { machines[i].res = new Map(sm.res); machines[i].used = sm.used; machines[i].backlog = sm.backlog; });
     snap.overflowMachines.forEach((so, i) => { overflowMachines[i].backlog = so.backlog; });
-    sessions.clear(); for (const [k, v] of snap.sessions) sessions.set(k, v);
+    // 同一个 snap 会被 4 个策略各调一次——每次都要重新克隆，否则这几次 load 之间还是共享对象
+    sessions.clear(); for (const [k, v] of snap.sessions) sessions.set(k, { ...v });
     index.clear(); for (const [k, v] of snap.index) index.set(k, v);
   }
   return { step, machines, get simTime() { return simTime; }, warmStart, sessions, snapshot, loadSnapshot };
@@ -536,11 +540,12 @@ function renderResults(cfg, results) {
   const startH = results.pure_affinity.trace[0][1];
   const naiveEnd = results.naive_threshold.finalH, greedyEnd = results.ttft_greedy.finalH, isoEnd = results.ttft_isolated.finalH, paEnd = results.pure_affinity.finalH;
   const evPA = results.pure_affinity.evictTotal, evNaive = results.naive_threshold.evictTotal, evGreedy = results.ttft_greedy.evictTotal, evIso = results.ttft_isolated.evictTotal;
+  const rrNaive = results.naive_threshold.rerouteFrac*100, rrGreedy = results.ttft_greedy.rerouteFrac*100, rrIso = results.ttft_isolated.rerouteFrac*100;
   document.getElementById("takeawayCards").innerHTML = `
     <div class="card"><b>①外部需求从头到尾没变</b><p>四组仿真共享同一份会话到达/节奏/寿命，差异 100% 来自路由策略本身——朴素阈值从 ${startH.toFixed(0)}% 掉到 ${naiveEnd.toFixed(1)}%，纯粹是自己造成的。</p></div>
-    <div class="card"><b>②TTFT 赢在"连带驱逐"更少，不是负载更均</b><p>90min 累计逐出会话数：纯亲和 ${(evPA/1000).toFixed(0)}k，TTFT 贪心只有 ${(evGreedy/1000).toFixed(0)}k（少 ${(100*(1-evGreedy/evPA)).toFixed(0)}%）——门槛随 context 大小同比升高，TTFT 天然只挪小请求；挪走一笔小写入，热机器就不用为了腾地方去挤自己其他常驻会话。</p></div>
-    <div class="card"><b>③朴素阈值反过来在制造连带驱逐</b><p>朴素阈值逐出数 ${(evNaive/1000).toFixed(0)}k，是纯亲和的 ${(evNaive/evPA).toFixed(1)} 倍——不看大小见负载超线就挪，经常把大会话的全量重算结果甩给随机一台机器，那台机器被迫挤掉自己一堆常驻会话，就是理论上说的"miss 传染"级联，这里能直接数出来。</p></div>
-    <div class="card"><b>④隔离的边际价值：${(evIso/1000).toFixed(0)}k 逐出，比 TTFT 贪心更少</b><p>TTFT+隔离终值 ${isoEnd.toFixed(1)}%，逐出数比 TTFT 贪心（${(evGreedy/1000).toFixed(0)}k）更低——"代价算对"已经拿到大部分收益，隔离在此基础上进一步压低了连带驱逐；搬迁率更高、饱和度更紧时差距会更明显。调阈值滑杆试试。</p></div>`;
+    <div class="card"><b>②TTFT 贪心比朴素阈值好，但没打平纯亲和</b><p>终值 ${greedyEnd.toFixed(1)}%，明显低于纯亲和的 ${paEnd.toFixed(1)}%；90min 累计逐出 ${(evGreedy/1000).toFixed(0)}k，是纯亲和的 ${(evGreedy/evPA).toFixed(1)} 倍——"逐请求算代价"缓解了伤害，没有消灭它。</p></div>
+    <div class="card"><b>③算得准 ≠ 挪得少：TTFT 的搬迁占比反而比朴素阈值更高</b><p>朴素阈值搬迁 ${rrNaive.toFixed(1)}%，TTFT 贪心 ${rrGreedy.toFixed(1)}%——因为门槛正比于这次请求的 C，小请求的门槛低到几乎为零，而 q(home) 是同一时刻所有排队请求共享的一个数：一个贵会话的重算就能把同一时间窗口里一串无辜小请求一起带走。挪得聪明不等于挪得少。</p></div>
+    <div class="card"><b>④只有隔离没有掉队：架构隔离不靠猜对</b><p>TTFT+隔离终值 ${isoEnd.toFixed(1)}%，逐出数只有纯亲和的 ${(evIso/evPA).toFixed(1)} 倍（TTFT 贪心是 ${(evGreedy/evPA).toFixed(1)} 倍），搬迁占比只有 ${rrIso.toFixed(1)}%却效果最好——因为它从不把重算结果写进任何人的常驻空间，判断错了也伤不到别人。这才是能被证明收敛的那一版，不是算法更聪明，是架构上把外部性摁死了。</p></div>`;
 }
 
 function renderDist(results, policyId) {
