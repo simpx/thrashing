@@ -59,6 +59,7 @@
   .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px 16px; margin: 14px 0; }
   .defbox { border-left: 3px solid var(--series-1); background: var(--wash-1); border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 14px 0; font-size: 14.5px; }
   .defbox p { margin: 5px 0; }
+  .defbox code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--wash-1); border-radius: 5px; padding: 1px 7px; color: var(--text-primary); font-size: 13.5px; }
   em.v { font-style: italic; font-family: Georgia, "Times New Roman", serif; }
   .controls { display: flex; flex-wrap: wrap; gap: 14px 26px; align-items: center; margin: 8px 0 6px; }
   .controls label { font-size: 13.5px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
@@ -123,10 +124,13 @@
   <div class="kicker">仿真设定</div>
   <h2>四种策略，同一套需求</h2>
   <div class="defbox">
-    <p><b>纯亲和</b>：索引说去哪就去哪，从不因负载改路由（理论上限，也是唯一"不可能因策略而漂移"的对照组）。</p>
-    <p><b>朴素阈值</b>：索引给出候选机器；候选负载超过阈值就无脑换一台——不比较代价，见了你上一轮讨论过的"阈值式"病灶。</p>
-    <p><b>TTFT 贪心</b>：把命中和负载换算成同一单位（预计等到第一个 token 的时间），谁小选谁——修掉了阈值式的校准问题，但仍是逐请求评估，看不见"这次 miss 会挤掉谁"。</p>
-    <p><b>TTFT + 隔离</b>：一样按 TTFT 比较，但一旦决定放弃亲和，流量进专门的溢出池，不占用任何人的常驻空间——架构上消灭外部性，不依赖预测。</p>
+    <p><b>记号</b>：<em class="v">q</em>(m) = 机器 m 当前预计排队秒数（backlog/算力）；<em class="v">δ</em> = 本轮新增 token；<em class="v">C</em> = 这次要复用的 context 大小；<em class="v">rate</em> = 单机 token/s 处理能力；home = 索引记录的归属机器。</p>
+    <p><b>纯亲和</b>：<code>route = home</code>（索引有效就去索引说的那台，从不因负载改路由——理论上限，也是唯一"不可能因策略而漂移"的对照组）。</p>
+    <p><b>朴素阈值</b>：<code>if q(home) &gt; θ: route = argmin_alt q(alt)  else: route = home</code>——只看 <em class="v">q</em>(home) 一个数字过没过线，θ 是滑杆上那个"敏感度"；换机器的判断里完全没出现 C，不比较代价，就是"阈值式"病灶。</p>
+    <p><b>TTFT 贪心</b>：<code>TTFT(home) = q(home) + δ/rate</code>，<code>TTFT(alt) = q(alt) + (δ+C)/rate</code>；<code>route = (TTFT(alt) &lt; TTFT(home)) ? alt : home</code>。把两边化简，重路由的触发条件其实是：</p>
+    <p style="text-align:center"><code><b>q(home) − q(alt) &gt; C / rate</b></code></p>
+    <p>右边正比于 <em class="v">C</em>——这次要复用的前缀越大，需要的排队落差就要越大，重路由才划算。<b>这就是它不靠隔离也能护住别人的原因</b>：门槛随体量自动收紧，天然只挪便宜的小请求，贵的大会话门槛高到几乎碰不到，挪的时候写进 alt 的量也小，连带驱逐自然就少（tiles 里的逐出数能直接看到这个效果）。</p>
+    <p><b>TTFT + 隔离</b>：判断式一样，只是 alt 换成专门的溢出池机器——即使触发条件判断出错（比如低估了 C 的代价），溢出池也从不装任何人的常驻数据，写进去不会挤走谁。架构上把外部性摁死，不依赖"C 越大越少挪"这个自我选择去兜底。</p>
   </div>
   <div class="card">
     <div class="controls">
