@@ -184,6 +184,55 @@
   <div class="takeaways" id="takeawayCards"></div>
 </section>
 
+<section id="setup2">
+  <div class="kicker">架构进阶</div>
+  <h2>如果 cache 不再跟着路由走：中心化缓存</h2>
+  <div class="defbox">
+    <p><b>假设变了</b>：400 台机器不再各自维护一份缓存，而是把容量整体贡献出来，组成<b>一个共享 LRU 池</b>。谁在池子里留没留、留多少，只取决于<b>全局</b> demand 有没有超过<b>全局</b>容量——跟这次请求被路由到了哪台机器<b>完全无关</b>。命中率不再是一份需要猜的"信息"，是物理规律的自然结果：调度器不用再猜命中率，索引、TTL 这些概念也一起不需要了。机器退化成纯粹的<b>计算资源</b>：只剩队列和吞吐。调度问题因此从"缓存亲和 vs 负载均衡"的取舍，缩小成一个<b>纯负载均衡</b>问题。</p>
+    <p><b>三种路由</b>：<b>亲和</b>（还是那个老习惯——认准一台机器就不换，不看队列，也不看命中率反正也没用了）、<b>随机</b>（每次都摇一个骰子，完全不看任何信息）、<b>最短队列</b>（每次采样几台，挑排队最短的那台——纯负载均衡）。</p>
+    <p><b>一个容易漏掉、但决定了下面所有结论的建模细节</b>：一个会话的下一轮请求，必须等<b>这一轮真正处理完、真的收到响应</b>之后才会发生——不是"决定路由的那一刻"就默认可以发下一句。如果不加这条约束，亲和路由下被同一台拥堵机器攒住的会话，它后续几轮会全部堆进同一条队列，排空时被背靠背连续处理，会"意外"刷出偏高的命中率——那不是真实世界的样子，只是记账方式留的漏洞。加上这条真实的反压约束之后，"总吞吐量早晚都会追平、看不出损失"这个假象也随之消失：有些机器排长队、有些机器在空转，损失是真实存在的，只是不会出现在命中率上，会出现在吞吐上。</p>
+  </div>
+  <div class="card">
+    <div class="controls">
+      <label>单机处理速率<input type="range" id="rate2Slider" min="3000" max="8000" step="250" value="4500"><output id="rate2Out">4500</output> tok/s</label>
+      <label>共享池总容量<input type="range" id="cap2Slider" min="1000" max="2000" step="50" value="1500"><output id="cap2Out">1500</output>k tok/机</label>
+      <button class="run" id="runBtn2">▶ 跑一遍（约 10-15 秒）</button>
+    </div>
+    <p class="status-line" id="statusLine2">默认参数下三条路由共享同一套需求；"单机处理速率"决定拥堵程度——调低会看到随机路由排队失稳（积压时间可能远超 90 分钟窗口，这本身就是个真实的教训：不看负载的路由，方差会失控）。</p>
+  </div>
+</section>
+
+<section id="result2" style="display:none">
+  <div class="kicker">结果</div>
+  <h2>命中率不再依赖路由，但吞吐还是依赖</h2>
+  <div class="card">
+    <p class="chart-title">集群整体命中率随时间（90 分钟，每 5 分钟采样）</p>
+    <div class="legend">
+      <span><span class="key k1"></span>亲和</span>
+      <span><span class="key k2"></span>随机</span>
+      <span><span class="key k3"></span>最短队列</span>
+    </div>
+    <div class="chart-wrap" id="hitChart2"></div>
+  </div>
+  <div class="card">
+    <p class="chart-title">总 TPM（新 token + 重算 token，千 token/分钟）</p>
+    <p class="chart-note">目的：说明即使命中率已经跟路由脱钩，纯亲和这种"不看负载"的路由方式，仍然会因为排队不均而白白损失吞吐——损失不是从命中率里来的，是从"有些机器在排长队、有些机器在空转"里来的。</p>
+    <div class="chart-wrap" id="totChart2"></div>
+  </div>
+  <div class="card">
+    <p class="chart-title">有效 TPM（只算新 token，千 token/分钟）</p>
+    <p class="chart-note">这才是"真正干了多少有用的活"：miss 掉的重算不算数，因为反压是真实的——一轮没真正处理完，下一轮就不会发生，排队不均造成的损失会直接体现在这里，不再被"总量早晚都能补上"这种假象掩盖。</p>
+    <div class="chart-wrap" id="effChart2"></div>
+  </div>
+  <div class="card">
+    <p class="chart-title">最长排队积压（换算成"排到它要多久才能排空"，分钟）</p>
+    <p class="chart-note">全局所有机器里排队最久的那一台，如果现在不再接新请求、只吃现有积压，要多久才能排空——这是吞吐损失背后真正在发生的事：负载分布得越不均，就有机器越接近"永远排不完"。</p>
+    <div class="chart-wrap" id="qChart2"></div>
+  </div>
+  <div class="tiles" id="finalTiles2"></div>
+  <div class="takeaways" id="takeawayCards2"></div>
+</section>
+
 <footer>
   <p>页面中的会话到达、节奏、寿命由固定随机种子生成，四种策略共享同一份"世界演化"随机流，路由决策的随机采样单独一条流，保证四组仿真面对的是同一套需求。仅供内部推演使用，参数与真实生产环境不完全对应。</p>
 </footer>
@@ -655,6 +704,278 @@ function renderDist(results, policyId) {
 }
 
 runBtn.addEventListener("click", runAll);
+
+/* ================= 第二部分：中心化缓存（共享池，只剩负载均衡） ================= */
+function makeCentralSim(cfg) {
+  const rndWorld = mulberry32(cfg.seed || 42);
+  const rndRoute = mulberry32((cfg.seed || 42) ^ 0x9e3779b9);
+  const rnd = rndWorld;
+  const expRand = (mean) => -Math.log(1 - rnd()) * mean;
+  const lognormalRand = (mean, sigma) => {
+    const mu = Math.log(mean) - sigma * sigma / 2;
+    const u1 = Math.max(rnd(), 1e-9), u2 = rnd();
+    const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return Math.exp(mu + sigma * z);
+  };
+  const N_M = cfg.machines, TICK = cfg.tickSeconds, DELTA = cfg.turnTokens;
+  const MATURE_TURNS = Math.round(cfg.rMature), LAMBDA_NEW = cfg.newSessionRatePerSec;
+  const CAP_TOKENS_PER_TICK = cfg.machineTokensPerSec * TICK;
+  const CAP_TOTAL = cfg.totalCapacity;
+
+  // ---- 共享池：一个 LRU，容量 = 全体机器贡献的总和 ----
+  const shared = { res: new Map(), used: 0 };
+  function residentCtx(id) { return shared.res.get(id) || 0; }
+  function evictToFit(needTokens) {
+    while (shared.used + needTokens > CAP_TOTAL && shared.res.size) {
+      const k = shared.res.keys().next().value;
+      shared.used -= shared.res.get(k); shared.res.delete(k);
+    }
+  }
+  function touchShared(id, newCtx) {
+    const old = shared.res.get(id) || 0;
+    if (shared.res.has(id)) { shared.res.delete(id); shared.used -= old; }
+    newCtx = Math.min(newCtx, CAP_TOTAL);
+    evictToFit(newCtx);
+    shared.res.set(id, newCtx); shared.used += newCtx;
+  }
+
+  // ---- 机器：纯计算资源，各自一条 FIFO 队列 ----
+  const machines = Array.from({ length: N_M }, () => ({ queue: [] }));
+  function queueTokenDebt(mi) {
+    let tok = 0;
+    for (const it of machines[mi].queue) tok += (it.remaining !== undefined) ? it.remaining : (it.delta + it.ctxPrev);
+    return tok;
+  }
+  function queryQueueDelay(mi) { return queueTokenDebt(mi) / cfg.machineTokensPerSec; }
+  function processQueue(mi, budget, onFinish) {
+    const q = machines[mi].queue;
+    while (q.length && budget > 0) {
+      const it = q[0];
+      if (it.remaining === undefined) {
+        const actualPrev = Math.min(residentCtx(it.id), it.ctxPrev);
+        it.recompute = it.ctxPrev - actualPrev;
+        it.remaining = it.delta + it.recompute;
+      }
+      const spend = Math.min(budget, it.remaining);
+      it.remaining -= spend; budget -= spend;
+      if (it.remaining <= 0) { touchShared(it.id, it.ctxPrev + it.delta); onFinish(it); q.shift(); }
+    }
+  }
+  function pickShortestQueue() {
+    let best = -1, bestQ = Infinity;
+    for (let k = 0; k < cfg.altSampleSize; k++) {
+      const mi = Math.floor(rndRoute() * N_M), q = queryQueueDelay(mi);
+      if (q < bestQ) { bestQ = q; best = mi; }
+    }
+    return best;
+  }
+
+  // ---- 会话 / 世界演化 ----
+  const index = new Map(); // id -> mi（只有"亲和"策略会用；没有 TTL，因为命中不再依赖它）
+  let nextId = 1;
+  const sessions = new Map();
+  let simTime = 0;
+  function newSession() {
+    const id = nextId++;
+    const cadence = lognormalRand(cfg.turnGapMean, 0.7);
+    const endsAtTurn = Math.max(3, Math.round(lognormalRand(MATURE_TURNS * cfg.lifeMult, 0.5)));
+    sessions.set(id, { ctx: 0, turns: 0, cadence, nextTurnAt: simTime + expRand(cadence * 0.3), endsAtTurn });
+    return id;
+  }
+  function warmStart() {
+    const avgLifetimeSec = MATURE_TURNS * cfg.lifeMult * cfg.turnGapMean;
+    const targetConcurrent = Math.round(LAMBDA_NEW * avgLifetimeSec);
+    for (let i = 0; i < targetConcurrent; i++) {
+      const id = newSession(), s = sessions.get(id);
+      s.turns = Math.floor(rnd() * s.endsAtTurn); s.ctx = s.turns * DELTA;
+      s.nextTurnAt = simTime + expRand(s.cadence);
+      touchShared(id, s.ctx);
+      index.set(id, Math.floor(rnd() * N_M));
+    }
+  }
+  const ROUTERS = {
+    affinity: (id) => index.has(id) ? index.get(id) : pickShortestQueue(),
+    random: () => Math.floor(rndRoute() * N_M),
+    shortest_queue: () => pickShortestQueue(),
+  };
+  function step(policy) {
+    const router = ROUTERS[policy];
+    let reqCount = 0;
+    const due = [];
+    for (const [id, s] of sessions) if (s.nextTurnAt <= simTime) due.push(id);
+    const expectedNew = LAMBDA_NEW * TICK;
+    const nNew = Math.floor(expectedNew) + (rnd() < (expectedNew - Math.floor(expectedNew)) ? 1 : 0);
+    for (let i = 0; i < nNew; i++) due.push(newSession());
+    // 决策 + 入队——注意这里不推进 nextTurnAt：这一轮真正处理完之前，
+    // 这个会话不会再提交下一轮请求（等真实响应，不是等排队决策，这条反压是 by design）。
+    for (const id of due) {
+      const s = sessions.get(id);
+      if (!s) continue;
+      reqCount++;
+      const ctxPrev = s.ctx;
+      const mi = router(id);
+      machines[mi].queue.push({ id, ctxPrev, delta: DELTA });
+      index.set(id, mi);
+      s.nextTurnAt = Infinity;
+    }
+    let missTok = 0, newTok = 0, ctxPrevSum = 0;
+    const onFinish = it => {
+      newTok += it.delta; missTok += it.recompute; if (it.ctxPrev > 0) ctxPrevSum += it.ctxPrev;
+      const s = sessions.get(it.id);
+      if (!s) return;
+      s.ctx = it.ctxPrev + it.delta; s.turns++;
+      if (s.turns >= s.endsAtTurn) { sessions.delete(it.id); index.delete(it.id); }
+      else s.nextTurnAt = simTime + expRand(s.cadence);
+    };
+    for (let mi = 0; mi < N_M; mi++) processQueue(mi, CAP_TOKENS_PER_TICK, onFinish);
+    simTime += TICK;
+    return { missTok, newTok, ctxPrevSum, reqCount, sessionCount: sessions.size };
+  }
+  function maxQueueMinutes() {
+    let maxTok = 0;
+    for (let mi = 0; mi < N_M; mi++) { const t = queueTokenDebt(mi); if (t > maxTok) maxTok = t; }
+    return maxTok / cfg.machineTokensPerSec / 60;
+  }
+  function snapshot() {
+    return {
+      simTime, nextId,
+      shared: { res: Array.from(shared.res.entries()), used: shared.used },
+      machines: machines.map(m => ({ queue: m.queue.map(it => ({ ...it })) })),
+      sessions: Array.from(sessions, ([k, v]) => [k, { ...v }]),
+      index: Array.from(index.entries()),
+    };
+  }
+  function loadSnapshot(snap) {
+    simTime = snap.simTime; nextId = snap.nextId;
+    shared.res = new Map(snap.shared.res); shared.used = snap.shared.used;
+    snap.machines.forEach((sm, i) => { machines[i].queue = sm.queue.map(it => ({ ...it })); });
+    sessions.clear(); for (const [k, v] of snap.sessions) sessions.set(k, { ...v });
+    index.clear(); for (const [k, v] of snap.index) index.set(k, v);
+  }
+  return { step, machines, shared, get simTime() { return simTime; }, warmStart, sessions, snapshot, loadSnapshot, maxQueueMinutes };
+}
+
+const BASE_CFG2 = {
+  seed: 7, machines: 400, tickSeconds: 5, turnTokens: 800, rMature: 100, lifeMult: 1.0,
+  newSessionRatePerSec: 2.5, turnGapMean: 55, altSampleSize: 4,
+};
+const WARMUP_MIN2 = 180, RUN_MIN2 = 90, SAMPLE_MIN2 = 5;
+const POLICIES2 = [
+  { id: "affinity", name: "亲和", cls: "s1" },
+  { id: "random", name: "随机", cls: "s2" },
+  { id: "shortest_queue", name: "最短队列", cls: "s3" },
+];
+
+const rate2Slider = document.getElementById("rate2Slider"), rate2Out = document.getElementById("rate2Out");
+const cap2Slider = document.getElementById("cap2Slider"), cap2Out = document.getElementById("cap2Out");
+rate2Slider.oninput = () => rate2Out.textContent = rate2Slider.value;
+cap2Slider.oninput = () => cap2Out.textContent = cap2Slider.value;
+
+const runBtn2 = document.getElementById("runBtn2"), statusLine2 = document.getElementById("statusLine2");
+const resultSection2 = document.getElementById("result2");
+
+function niceMax(v) { const m = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1))) - 1); return Math.ceil(v / m / 5) * m * 5 || 1; }
+
+async function runAll2() {
+  runBtn2.disabled = true;
+  const cfg = {
+    ...BASE_CFG2,
+    machineTokensPerSec: +rate2Slider.value,
+    totalCapacity: BASE_CFG2.machines * (+cap2Slider.value * 1000),
+  };
+  statusLine2.textContent = "预热中（模拟 3 小时，让共享池先到稳态）…";
+  await yieldToUI();
+  const t0 = performance.now();
+  const warmSim = makeCentralSim(cfg);
+  warmSim.warmStart();
+  const warmTicks = Math.round(WARMUP_MIN2 * 60 / cfg.tickSeconds);
+  for (let i = 0; i < warmTicks; i++) {
+    warmSim.step("shortest_queue");
+    if (i % 400 === 0) await yieldToUI();
+  }
+  const snap = warmSim.snapshot();
+  const results = {};
+  for (const p of POLICIES2) {
+    statusLine2.textContent = `跑 ${p.name} 策略…`;
+    await yieldToUI();
+    const sim = makeCentralSim(cfg);
+    sim.loadSnapshot(snap);
+    const ticks = Math.round(RUN_MIN2 * 60 / cfg.tickSeconds);
+    const sampleTicks = Math.round(SAMPLE_MIN2 * 60 / cfg.tickSeconds);
+    let wMiss = 0, wCtx = 0, wNew = 0, wReq = 0;
+    const hitTrace = [], totTrace = [], effTrace = [], qTrace = [];
+    for (let i = 0; i < ticks; i++) {
+      const r = sim.step(p.id);
+      wMiss += r.missTok; wCtx += r.ctxPrevSum; wNew += r.newTok; wReq += r.reqCount;
+      if ((i + 1) % sampleTicks === 0) {
+        const tmin = (i + 1) * cfg.tickSeconds / 60;
+        hitTrace.push([tmin, wCtx > 0 ? 100 * (1 - wMiss / wCtx) : (hitTrace.length ? hitTrace[hitTrace.length-1][1] : 90)]);
+        totTrace.push([tmin, Math.round((wMiss + wNew) / SAMPLE_MIN2 / 1000)]);
+        effTrace.push([tmin, Math.round(wNew / SAMPLE_MIN2 / 1000)]);
+        qTrace.push([tmin, +sim.maxQueueMinutes().toFixed(1)]);
+        wMiss = 0; wCtx = 0; wNew = 0;
+      }
+      if (i % 600 === 0) await yieldToUI();
+    }
+    let pendingTok = 0, pendingReqs = 0;
+    for (const m of sim.machines) { pendingReqs += m.queue.length; for (const it of m.queue) pendingTok += (it.remaining !== undefined ? it.remaining : it.delta + it.ctxPrev); }
+    results[p.id] = { hitTrace, totTrace, effTrace, qTrace, reqTotal: wReq, pendingTok, pendingReqs };
+  }
+  statusLine2.textContent = `完成，用时 ${((performance.now() - t0) / 1000).toFixed(1)}s。`;
+  renderResults2(cfg, results);
+  runBtn2.disabled = false;
+}
+
+function renderResults2(cfg, results) {
+  resultSection2.style.display = "";
+  const mk = (elId, key, opts) => {
+    const el = document.getElementById(elId);
+    el.innerHTML = "";
+    const allPts = POLICIES2.flatMap(p => results[p.id][key].map(pt => pt[1]));
+    const yMax = opts.yMax || niceMax(Math.max(...allPts) * 1.1);
+    const yMin = opts.yMin ?? 0;
+    lineChart(el, {
+      h: 260, xMin: 0, xMax: RUN_MIN2, yMin, yMax,
+      xTicks: [0, 15, 30, 45, 60, 75, 90], yTicks: opts.yTicks || [yMin, yMax*0.25+yMin*0.75, (yMax+yMin)/2, yMax*0.75+yMin*0.25, yMax],
+      xLabel: "分钟", yLabel: opts.yLabel,
+      xName: "t", snap: v => Math.round(v / SAMPLE_MIN2) * SAMPLE_MIN2,
+      xFmt: v => v + "min", yFmt: opts.yFmt || (v => v.toFixed(1)),
+      series: POLICIES2.map(p => ({ name: p.name, cls: p.cls, points: results[p.id][key] })),
+      ariaLabel: opts.ariaLabel,
+    });
+  };
+  mk("hitChart2", "hitTrace", { yMin: 85, yMax: 100, yTicks: [85,90,95,100], yFmt: v => v.toFixed(1)+"%", yLabel: "命中率 %", ariaLabel: "三种路由的集群命中率随时间变化" });
+  mk("totChart2", "totTrace", { yFmt: v => Math.round(v).toLocaleString(), yLabel: "k tok/min", ariaLabel: "三种路由的总TPM随时间变化" });
+  mk("effChart2", "effTrace", { yFmt: v => Math.round(v).toLocaleString(), yLabel: "k tok/min", ariaLabel: "三种路由的有效TPM随时间变化" });
+  mk("qChart2", "qTrace", { yFmt: v => v.toFixed(1)+"min", yLabel: "分钟", ariaLabel: "三种路由的最长排队积压随时间变化" });
+
+  const tilesEl = document.getElementById("finalTiles2");
+  tilesEl.innerHTML = POLICIES2.map(p => {
+    const r = results[p.id];
+    const color = `var(--${p.cls === "s1" ? "series-1" : p.cls === "s2" ? "series-2" : "series-3"})`;
+    const finalHit = r.hitTrace[r.hitTrace.length-1][1], finalTot = r.totTrace[r.totTrace.length-1][1], finalEff = r.effTrace[r.effTrace.length-1][1], finalQ = r.qTrace[r.qTrace.length-1][1];
+    return `<div class="tile" style="border-top-color:${color}">
+      <div class="tl">${p.name}</div>
+      <div class="tv">${finalHit.toFixed(1)}%</div>
+      <div class="td">末段命中率 · 有效TPM ${finalEff.toLocaleString()}k/min</div>
+      <div class="td">总TPM ${finalTot.toLocaleString()}k/min · 最长排队积压 ${finalQ.toFixed(1)}min</div>
+      ${finalQ > 20 ? `<div class="td" style="color:var(--status-critical)">⚠ 排队已积压到窗口结束都排不完（估计还要 ${finalQ.toFixed(0)} 分钟），上面的数字是被截断的下限，真实损失比图上更严重</div>` : ""}
+    </div>`;
+  }).join("");
+
+  const aff = results.affinity, rnd = results.random, sq = results.shortest_queue;
+  const affEff = aff.effTrace[aff.effTrace.length-1][1], sqEff = sq.effTrace[sq.effTrace.length-1][1], rndEff = rnd.effTrace[rnd.effTrace.length-1][1];
+  const affHit = aff.hitTrace[aff.hitTrace.length-1][1], sqHit = sq.hitTrace[sq.hitTrace.length-1][1];
+  const affQ = aff.qTrace[aff.qTrace.length-1][1], sqQ = sq.qTrace[sq.qTrace.length-1][1], rndQ = rnd.qTrace[rnd.qTrace.length-1][1];
+  const effLossPct = (100 * (sqEff - affEff) / sqEff).toFixed(1);
+  document.getElementById("takeawayCards2").innerHTML = `
+    <div class="card"><b>①命中率跟路由脱钩了，但没有完全脱钩</b><p>三条命中率曲线几乎贴在一起（亲和 ${affHit.toFixed(1)}%，最短队列 ${sqHit.toFixed(1)}%），因为命中不再取决于"去了哪台机器"，只取决于全局容量够不够——但亲和仍然略低一点，因为它造出的排队不均本身也会轻微影响命中的时机。</p></div>
+    <div class="card"><b>②纯亲和的有效TPM确实更低</b><p>亲和 ${affEff.toLocaleString()}k/min vs 最短队列 ${sqEff.toLocaleString()}k/min，差 ${effLossPct}%——这不是"重算更多"造成的，是"有些机器在排长队、有些在空转"造成的真实产出损失，而且这次是加了真实反压之后测出来的，不是记账假象。</p></div>
+    <div class="card"><b>③不看负载比"认死一台"更危险</b><p>随机路由最长排队积压冲到 ${rndQ.toFixed(1)}min（亲和 ${affQ.toFixed(1)}min，最短队列只有 ${sqQ.toFixed(1)}min），有效TPM也跌到 ${rndEff.toLocaleString()}k/min——完全不用任何信息的路由，比"好歹认准一台"的亲和更容易失衡，这是纯负载均衡问题里一个独立于缓存的教训。</p></div>
+    <div class="card"><b>④这一节的"损失"活在吞吐和排队里，不活在命中率里</b><p>跟第一节不一样：这里不会有雪崩式的命中率崩溃，因为架构上已经没有"跟错人挤兑"这回事了。剩下的唯一变量是负载均衡质量——越接近满载，路由信息用得好不好，差距就越会从"排队积压"这类分布型指标里冒出来，而不是从聚合吞吐的总量里。</p></div>`;
+}
+
+runBtn2.addEventListener("click", runAll2);
 </script>
 </body>
 </html>
