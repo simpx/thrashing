@@ -127,7 +127,7 @@
     <p><b>记号</b>：<em class="v">q</em>(m) = 机器 m 当前预计排队秒数（backlog/算力）；<em class="v">δ</em> = 本轮新增 token；<em class="v">C</em> = 这个会话<b>到目前为止积累的全部前缀长度</b>（不是这一轮新增，是它整段历史）；<em class="v">rate</em> = 单机 token/s 处理能力；home = 索引记录的归属机器。走 home 只算 δ（前缀免费复用）；走 alt 假设一定是全量冷 miss，要算 δ+<em class="v">C</em>——不建模"alt 上恰好也有残留缓存"的中间态（实测这类幽灵命中占比只有 0.1-0.2%，可以忽略）。</p>
     <p><b>纯亲和</b>：<code>route = home</code>（索引有效就去索引说的那台，从不因负载改路由——理论上限，也是唯一"不可能因策略而漂移"的对照组）。</p>
     <p><b>朴素阈值</b>：<code>if q(home) &gt; θ: route = argmin_alt q(alt)  else: route = home</code>——只看 <em class="v">q</em>(home) 一个数字过没过线，θ 是滑杆上那个"敏感度"；换机器的判断里完全没出现 C，不比较代价，就是"阈值式"病灶。</p>
-    <p><b>TTFT 贪心</b>：<code>TTFT(home) = q(home) + δ/rate</code>（home 是否真命中不查，无条件假设是——这是延续早前讨论定下的简化，实际执行时算量仍按真实驻留量结算，这个假设只影响决策，不影响结果统计），<code>TTFT(alt) = q(alt) + (δ+C)/rate</code>；<code>route = (TTFT(alt) &lt; TTFT(home)) ? alt : home</code>。化简后触发条件是：</p>
+    <p><b>TTFT 贪心</b>：<code>TTFT(home) = q(home) + (δ+miss)/rate</code>，miss = 查询 home 上这个会话真实还留着多少前缀、缺口部分才算重算（不是无条件假设命中——home 也可能被别的会话的写入悄悄挤掉一截，决策时就该知道）；<code>TTFT(alt) = q(alt) + (δ+C)/rate</code>（alt 假设一定全量冷 miss）；<code>route = (TTFT(alt) &lt; TTFT(home)) ? alt : home</code>。当 home 前缀完好时化简后触发条件是：</p>
     <p style="text-align:center"><code><b>q(home) − q(alt) &gt; C / rate</b></code></p>
     <p>右边正比于 <em class="v">C</em>，这句话反过来读更准确：<b>C 越小，门槛越低</b>——一个小请求，只要 home 有一点点排队落差就会被挪走，几乎没有免疫门槛。而 q(home) 是同一台机器上<b>所有排队请求共享的一个数</b>：只要有一个贵会话的重算恰好堆在队列里，同一时间窗口内排在它后面的一串本来毫不相干的小请求，都会看到被顶高的 q(home)、集体被判定"该走"——一次贵请求能带崩一整批无辜的小请求。这两条叠加的结果是重路由率反而<b>高于</b>朴素阈值（tiles 里能看到），逐出数仍然远超纯亲和：<b>算得准不等于挪得少，隔离不是可有可无的加分项</b>。</p>
     <p><b>TTFT + 隔离</b>：判断式一样，只是 alt 换成专门的溢出池机器——不管上面两条效应多严重、判断多草率，溢出池从不装任何人的常驻数据，写进去不会挤走谁。架构上把外部性摁死，不依赖"猜得准"去兜底，这也是四条曲线里唯一稳定跟在纯亲和后面、没有掉队的一条。</p>
@@ -232,6 +232,9 @@ function makeSim(cfg) {
   function touchMachine(mi, id, newCtx) {
     const m = machines[mi], old = m.res.get(id) || 0;
     if (m.res.has(id)) { m.res.delete(id); m.used -= old; }
+    // 单个会话比整机容量还大时，evictToFit 挤空所有人也腾不出这么多空间——clamp 住，
+    // 否则 used 会突破 M_CAP；现实中这种会话也不可能整个装下。
+    newCtx = Math.min(newCtx, M_CAP);
     evictToFit(mi, newCtx);
     m.res.set(id, newCtx); m.used += newCtx;
   }
@@ -277,15 +280,18 @@ function makeSim(cfg) {
     if (machineLoadEstimate(home) > cfg.loadThresholdSec) return { mi: pickAltMachine(home), rerouted: true };
     return { mi: home };
   }
-  function estTTFT(mi, ctxPrev, assumeHit) {
-    const q = machineLoadEstimate(mi), proc = assumeHit ? DELTA : (DELTA + ctxPrev);
+  // residentAmt = 这台机器上这个会话眼下真实还留着多少前缀（查出来的，不是假设的）；
+  // 之前这里对 home 无条件假设"一定命中"，如果 home 早被别的会话的写入悄悄挤掉了一部分，
+  // 决策会一直蒙在鼓里，直到真正处理时才发现要重算——决策和结果用的不是同一份事实。
+  function estTTFT(mi, ctxPrev, residentAmt) {
+    const q = machineLoadEstimate(mi), proc = DELTA + (ctxPrev - Math.min(residentAmt, ctxPrev));
     return q + proc / cfg.machineTokensPerSec;
   }
   function routeTTFT(id, ctxPrev) {
     const idx = index.get(id);
     if (!idx || idx.mi < 0 || simTime - idx.ts > TTL) return { mi: pickColdMachine(), cold: true };
-    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, true);
-    const alt = pickAltMachine(home), ttftAlt = estTTFT(alt, ctxPrev, false);
+    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, residentCtx(home, id));
+    const alt = pickAltMachine(home), ttftAlt = estTTFT(alt, ctxPrev, residentCtx(alt, id));
     if (ttftAlt < ttftHome) return { mi: alt, rerouted: true };
     return { mi: home };
   }
@@ -294,7 +300,7 @@ function makeSim(cfg) {
   function routeTTFTIsolated(id, ctxPrev) {
     const idx = index.get(id);
     if (!idx || idx.mi < 0 || simTime - idx.ts > TTL) return { mi: pickColdMachine(), cold: true };
-    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, true);
+    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, residentCtx(home, id));
     const ovIdx = Math.floor(rndRoute() * OVERFLOW_N), ov = overflowMachines[ovIdx];
     const ttftOv = ov.backlog / cfg.machineTokensPerSec + (DELTA + ctxPrev) / cfg.machineTokensPerSec;
     if (ttftOv < ttftHome) return { overflowIdx: ovIdx, rerouted: true };
