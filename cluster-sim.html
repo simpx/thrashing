@@ -124,19 +124,26 @@
   <div class="kicker">仿真设定</div>
   <h2>四种策略，同一套需求</h2>
   <div class="defbox">
-    <p><b>记号</b>：<em class="v">q</em>(m) = 机器 m 当前预计排队秒数（backlog/算力）；<em class="v">δ</em> = 本轮新增 token；<em class="v">C</em> = 这个会话<b>到目前为止积累的全部前缀长度</b>（不是这一轮新增，是它整段历史）；<em class="v">rate</em> = 单机 token/s 处理能力；home = 索引记录的归属机器。走 home 只算 δ（前缀免费复用）；走 alt 假设一定是全量冷 miss，要算 δ+<em class="v">C</em>——不建模"alt 上恰好也有残留缓存"的中间态（实测这类幽灵命中占比只有 0.1-0.2%，可以忽略）。</p>
+    <p><b>node = 一个简单的 block pool</b>：只有两个接口——<code>insert</code>（写入，走 LRU 逐出，会挤走别人）、<code>query</code>（只读，告诉调用方这个会话眼下真实还留着多少前缀，不刷新 LRU、没有副作用）。调度器和 node 是分开的两个角色：node 对自己的池子是自洽的、诚实的；<b>调度器面对的是预估的 TTFT</b>，信息来源可以是"只看队列的盲猜"，也可以是"真调用一次 query"——这是本页唯一一个可以切换对比的开关（控制条里的"TTFT 对 home 的信念"）。</p>
+    <p><b>记号</b>：<em class="v">q</em>(m) = 机器 m 当前预计排队秒数（backlog/算力）；<em class="v">δ</em> = 本轮新增 token；<em class="v">C</em> = 这个会话<b>到目前为止积累的全部前缀长度</b>；<em class="v">rate</em> = 单机 token/s 处理能力；home = 索引记录的归属机器。走 alt 因为索引压根没提过这台机器，缺省当没有，要算 δ+<em class="v">C</em>（全量冷 miss，不建模"alt 恰好也有残留"的中间态，实测这类幽灵命中占比只有 0.1-0.2%，可以忽略）。</p>
     <p><b>纯亲和</b>：<code>route = home</code>（索引有效就去索引说的那台，从不因负载改路由——理论上限，也是唯一"不可能因策略而漂移"的对照组）。</p>
-    <p><b>朴素阈值</b>：<code>if q(home) &gt; θ: route = argmin_alt q(alt)  else: route = home</code>——只看 <em class="v">q</em>(home) 一个数字过没过线，θ 是滑杆上那个"敏感度"；换机器的判断里完全没出现 C，不比较代价，就是"阈值式"病灶。</p>
-    <p><b>TTFT 贪心</b>：<code>TTFT(home) = q(home) + (δ+miss)/rate</code>，miss = 查询 home 上这个会话真实还留着多少前缀、缺口部分才算重算（不是无条件假设命中——home 也可能被别的会话的写入悄悄挤掉一截，决策时就该知道）；<code>TTFT(alt) = q(alt) + (δ+C)/rate</code>（alt 假设一定全量冷 miss）；<code>route = (TTFT(alt) &lt; TTFT(home)) ? alt : home</code>。当 home 前缀完好时化简后触发条件是：</p>
+    <p><b>朴素阈值</b>：<code>if q(home) &gt; θ: route = argmin_alt q(alt)  else: route = home</code>——只看 <em class="v">q</em>(home) 一个数字过没过线，θ 是滑杆上那个"敏感度"；换机器的判断里完全没出现 C，不比较代价，也从不 query，就是"阈值式"病灶。</p>
+    <p><b>TTFT 贪心</b>：<code>TTFT(home) = q(home) + (δ+(1−hitFrac)·C)/rate</code>——<b>策略1·盲猜</b>：不 query，索引说在就假设 hitFrac=1（一定命中）；<b>策略2·读查询</b>：真调 <code>node.query(id)</code> 拿真实驻留量算 hitFrac，home 也可能已经被别的会话的写入悄悄挤掉一截，query 就能照实反映。<code>TTFT(alt) = q(alt) + (δ+C)/rate</code>；<code>route = (TTFT(alt) &lt; TTFT(home)) ? alt : home</code>。hitFrac=1 时化简后触发条件是：</p>
     <p style="text-align:center"><code><b>q(home) − q(alt) &gt; C / rate</b></code></p>
-    <p>右边正比于 <em class="v">C</em>，这句话反过来读更准确：<b>C 越小，门槛越低</b>——一个小请求，只要 home 有一点点排队落差就会被挪走，几乎没有免疫门槛。而 q(home) 是同一台机器上<b>所有排队请求共享的一个数</b>：只要有一个贵会话的重算恰好堆在队列里，同一时间窗口内排在它后面的一串本来毫不相干的小请求，都会看到被顶高的 q(home)、集体被判定"该走"——一次贵请求能带崩一整批无辜的小请求。这两条叠加的结果是重路由率反而<b>高于</b>朴素阈值（tiles 里能看到），逐出数仍然远超纯亲和：<b>算得准不等于挪得少，隔离不是可有可无的加分项</b>。</p>
-    <p><b>TTFT + 隔离</b>：判断式一样，只是 alt 换成专门的溢出池机器——不管上面两条效应多严重、判断多草率，溢出池从不装任何人的常驻数据，写进去不会挤走谁。架构上把外部性摁死，不依赖"猜得准"去兜底，这也是四条曲线里唯一稳定跟在纯亲和后面、没有掉队的一条。</p>
+    <p>右边正比于 <em class="v">C</em>，反过来读更准确：<b>C 越小，门槛越低</b>——小请求几乎没有免疫门槛。而 q(home) 是同一台机器上<b>所有排队请求共享的一个数</b>：一个贵会话的重算堆在队列里，同一时间窗口内排在它后面一串本来毫不相干的小请求都会被连坐、集体判定"该走"。两条叠加，重路由率反而<b>高于</b>朴素阈值（tiles 里能看到），两种策略下逐出数都远超纯亲和：<b>算得准不等于挪得少</b>，两种信念来源的结论一致，隔离不是可有可无的加分项。</p>
+    <p><b>TTFT + 隔离</b>：判断式一样（同样可切换两种信念），只是 alt 换成专门的溢出池机器——不管上面两条效应多严重、信念来源准不准，溢出池从不装任何人的常驻数据，写进去不会挤走谁。架构上把外部性摁死，不依赖"猜得准"去兜底，这也是四条曲线里唯一稳定跟在纯亲和后面、没有掉队的一条。</p>
   </div>
   <div class="card">
     <div class="controls">
       <label>朴素阈值敏感度<input type="range" id="threshSlider" min="0.5" max="8" step="0.1" value="2.4"><output id="threshOut">2.4</output>s</label>
       <label>单机容量<input type="range" id="capSlider" min="900" max="2000" step="50" value="1500"><output id="capOut">1500</output>k tok</label>
       <label>索引 TTL<input type="range" id="ttlSlider" min="120" max="1800" step="60" value="900"><output id="ttlOut">900</output>s</label>
+      <label>TTFT 对 home 的信念
+        <select id="estModeSelect" style="font-size:13.5px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text-primary)">
+          <option value="blind">策略1·盲猜（信索引）</option>
+          <option value="pool_query" selected>策略2·读查询（查 pool）</option>
+        </select>
+      </label>
       <button class="run" id="runBtn">▶ 跑一遍（约 15-20 秒）</button>
     </div>
     <p class="status-line" id="statusLine">调好参数后点击运行；命中率越低越触发得多，朴素阈值在某个临界点附近会从"缓慢下滑"突变成"瞬间崩溃"，可以自己找那个点。</p>
@@ -280,18 +287,23 @@ function makeSim(cfg) {
     if (machineLoadEstimate(home) > cfg.loadThresholdSec) return { mi: pickAltMachine(home), rerouted: true };
     return { mi: home };
   }
-  // residentAmt = 这台机器上这个会话眼下真实还留着多少前缀（查出来的，不是假设的）；
-  // 之前这里对 home 无条件假设"一定命中"，如果 home 早被别的会话的写入悄悄挤掉了一部分，
-  // 决策会一直蒙在鼓里，直到真正处理时才发现要重算——决策和结果用的不是同一份事实。
-  function estTTFT(mi, ctxPrev, residentAmt) {
-    const q = machineLoadEstimate(mi), proc = DELTA + (ctxPrev - Math.min(residentAmt, ctxPrev));
+  // node 是个简单的 block pool：insert（写入，走 LRU）+ query（只读，判断命中率，无副作用）。
+  // hitFrac = 前缀还在的比例（0~1）。调度器对 home 的信念，两种策略可切换：
+  //   策略1"盲猜"——只看队列，不查 pool，索引说在就假设命中（hitFrac=1）；
+  //   策略2"读查询"——调 node.query(id)（= residentCtx，只读、不刷新 LRU）拿真实驻留量。
+  function estTTFT(mi, ctxPrev, hitFrac) {
+    const q = machineLoadEstimate(mi), proc = DELTA + (1 - hitFrac) * ctxPrev;
     return q + proc / cfg.machineTokensPerSec;
+  }
+  function homeHitFrac(mi, id, ctxPrev) {
+    if (cfg.homeEstimateMode === "pool_query") return Math.min(residentCtx(mi, id), ctxPrev) / ctxPrev;
+    return 1;
   }
   function routeTTFT(id, ctxPrev) {
     const idx = index.get(id);
     if (!idx || idx.mi < 0 || simTime - idx.ts > TTL) return { mi: pickColdMachine(), cold: true };
-    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, residentCtx(home, id));
-    const alt = pickAltMachine(home), ttftAlt = estTTFT(alt, ctxPrev, residentCtx(alt, id));
+    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, homeHitFrac(home, id, ctxPrev));
+    const alt = pickAltMachine(home), ttftAlt = estTTFT(alt, ctxPrev, 0); // alt 索引没提过，缺省当没有
     if (ttftAlt < ttftHome) return { mi: alt, rerouted: true };
     return { mi: home };
   }
@@ -300,7 +312,7 @@ function makeSim(cfg) {
   function routeTTFTIsolated(id, ctxPrev) {
     const idx = index.get(id);
     if (!idx || idx.mi < 0 || simTime - idx.ts > TTL) return { mi: pickColdMachine(), cold: true };
-    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, residentCtx(home, id));
+    const home = idx.mi, ttftHome = estTTFT(home, ctxPrev, homeHitFrac(home, id, ctxPrev));
     const ovIdx = Math.floor(rndRoute() * OVERFLOW_N), ov = overflowMachines[ovIdx];
     const ttftOv = ov.backlog / cfg.machineTokensPerSec + (DELTA + ctxPrev) / cfg.machineTokensPerSec;
     if (ttftOv < ttftHome) return { overflowIdx: ovIdx, rerouted: true };
@@ -457,6 +469,7 @@ async function runAll() {
     capacityPerMachine: +capSlider.value * 1000,
     loadThresholdSec: +threshSlider.value,
     indexTtlSeconds: +ttlSlider.value,
+    homeEstimateMode: document.getElementById("estModeSelect").value,
   };
   statusLine.textContent = "预热中（模拟 3 小时，让 400 台机器的常驻会话先到稳态）…";
   await yieldToUI();
