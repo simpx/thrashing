@@ -124,7 +124,7 @@
   <div class="kicker">仿真设定</div>
   <h2>四种策略，同一套需求</h2>
   <div class="defbox">
-    <p><b>记号</b>：<em class="v">q</em>(m) = 机器 m 当前预计排队秒数（backlog/算力）；<em class="v">δ</em> = 本轮新增 token；<em class="v">C</em> = 这次要复用的 context 大小；<em class="v">rate</em> = 单机 token/s 处理能力；home = 索引记录的归属机器。</p>
+    <p><b>记号</b>：<em class="v">q</em>(m) = 机器 m 当前预计排队秒数（backlog/算力）；<em class="v">δ</em> = 本轮新增 token；<em class="v">C</em> = 这个会话<b>到目前为止积累的全部前缀长度</b>（不是这一轮新增，是它整段历史）；<em class="v">rate</em> = 单机 token/s 处理能力；home = 索引记录的归属机器。走 home 只算 δ（前缀免费复用）；走 alt 假设一定是全量冷 miss，要算 δ+<em class="v">C</em>——不建模"alt 上恰好也有残留缓存"的中间态（实测这类幽灵命中占比只有 0.1-0.2%，可以忽略）。</p>
     <p><b>纯亲和</b>：<code>route = home</code>（索引有效就去索引说的那台，从不因负载改路由——理论上限，也是唯一"不可能因策略而漂移"的对照组）。</p>
     <p><b>朴素阈值</b>：<code>if q(home) &gt; θ: route = argmin_alt q(alt)  else: route = home</code>——只看 <em class="v">q</em>(home) 一个数字过没过线，θ 是滑杆上那个"敏感度"；换机器的判断里完全没出现 C，不比较代价，就是"阈值式"病灶。</p>
     <p><b>TTFT 贪心</b>：<code>TTFT(home) = q(home) + δ/rate</code>，<code>TTFT(alt) = q(alt) + (δ+C)/rate</code>；<code>route = (TTFT(alt) &lt; TTFT(home)) ? alt : home</code>。把两边化简，重路由的触发条件其实是：</p>
